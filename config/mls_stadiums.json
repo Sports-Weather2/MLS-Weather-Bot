@@ -177,17 +177,6 @@
       "roof_type": "open"
     },
     {
-      "team_id": "LAFC",
-      "team_name": "Los Angeles FC",
-      "stadium": "BMO Stadium",
-      "city": "Los Angeles, CA",
-      "latitude": 34.0134,
-      "longitude": -118.2384,
-      "timezone": "US/Pacific",
-      "roofed": false,
-      "roof_type": "open"
-    },
-    {
       "team_id": "SJ",
       "team_name": "San Jose Earthquakes",
       "stadium": "PayPal Park",
@@ -238,17 +227,6 @@
       "city": "Foxborough, MA",
       "latitude": 42.0909,
       "longitude": -71.2643,
-      "timezone": "US/Eastern",
-      "roofed": false,
-      "roof_type": "open"
-    },
-    {
-      "team_id": "NYC2",
-      "team_name": "New York Red Bulls II",
-      "stadium": "Red Bull Arena",
-      "city": "Harrison, NJ",
-      "latitude": 40.7352,
-      "longitude": -74.0776,
       "timezone": "US/Eastern",
       "roofed": false,
       "roof_type": "open"
@@ -316,17 +294,6 @@
       "latitude": 38.6270,
       "longitude": -90.1994,
       "timezone": "US/Central",
-      "roofed": false,
-      "roof_type": "open"
-    },
-    {
-      "team_id": "COL",
-      "team_name": "Colorado Rapids",
-      "stadium": "Dick's Sporting Goods Park",
-      "city": "Commerce City, CO",
-      "latitude": 39.7439,
-      "longitude": -104.8859,
-      "timezone": "US/Mountain",
       "roofed": false,
       "roof_type": "open"
     }
