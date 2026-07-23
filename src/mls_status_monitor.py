@@ -1,7 +1,8 @@
 """
-MLS game status monitor.
-Runs every 10 minutes from 10 AM–10 PM PT via GitHub Actions.
-Monitors game delays and posts updates to #mls-high-risk-weather Slack channel.
+MLS Game Status Monitor - Real-time game delay detection.
+Runs every 10 minutes from 10:00 AM - 10:00 PM PT via GitHub Actions.
+Monitors live games for weather delays and postponements.
+Sends alerts to #mls-high-risk-alerts Slack channel.
 """
 
 import os
@@ -11,171 +12,158 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from src.utils import (
     load_stadiums,
-    filter_roofed_stadiums,
     log_event
 )
 
 
-def get_mls_schedule() -> List[Dict]:
-    """Fetch MLS schedule from ESPN/MLS API."""
+def get_mls_games_today() -> List[Dict]:
+    """
+    Fetch MLS games for today from ESPN API.
+    Returns list of games with details.
+    """
     try:
-        # ESPN MLS endpoint
-        url = "https://site.api.espn.com/apis/site/v2/sports/soccer/mls/teams"
+        # Get today's date in YYYYMMDD format
+        today = datetime.utcnow().strftime("%Y%m%d")
+        
+        # ESPN MLS scoreboard endpoint
+        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard?dates={today}"
+        
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         
-        teams_data = response.json()
-        schedule = []
+        data = response.json()
+        events = data.get('events', [])
         
-        for team in teams_data.get('teams', []):
-            team_id = team.get('id')
-            team_name = team.get('name')
-            
-            # Get team schedule
-            schedule_url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/mls/teams/{team_id}/schedule"
-            schedule_response = requests.get(schedule_url, timeout=10)
-            schedule_response.raise_for_status()
-            
-            events = schedule_response.json().get('events', [])
-            schedule.extend(events)
-        
-        return schedule
+        return events
     except Exception as e:
-        print(f"ERROR fetching MLS schedule: {e}")
+        print(f"ERROR fetching MLS games: {e}")
         return []
 
 
-def get_game_for_stadium(team_id: str, schedule: List[Dict]) -> Optional[Dict]:
-    """Get today's game for a stadium."""
-    today = datetime.utcnow().date()
-    
-    for event in schedule:
-        try:
-            event_date = datetime.fromisoformat(
-                event.get('date', '').replace('Z', '+00:00')
-            ).date()
-            
-            # Check if game is today or within 12 hours
-            if event_date == today or (datetime.utcnow() - timedelta(hours=12)).date() <= event_date <= today:
-                # Match team
-                competitors = event.get('competitions', [{}])[0].get('competitors', [])
-                for competitor in competitors:
-                    if team_id in competitor.get('id', ''):
-                        return event
-        except Exception as e:
-            continue
-    
-    return None
-
-
-def check_game_status(event: Dict) -> Tuple[str, str, str]:
+def parse_game_status(event: Dict) -> Dict:
     """
-    Check game status.
-    Returns (status, status_detail, emoji).
+    Parse ESPN event data to extract game status.
     
-    Statuses:
-    - SCHEDULED: Game not started
-    - LIVE: Game in progress
-    - DELAYED: Game delayed
-    - POSTPONED: Game postponed
-    - COMPLETED: Game finished
+    Returns dict with:
+    - game_id
+    - home_team
+    - away_team
+    - status (scheduled, in_progress, final, postponed)
+    - start_time
+    - current_score
+    - delay_info (if applicable)
     """
     try:
-        status = event.get('status', {}).get('type', 'UNKNOWN')
-        status_detail = event.get('status', {}).get('detail', '')
+        status_type = event.get('status', {}).get('type', 'STATUS_UNKNOWN')
+        status_desc = event.get('status', {}).get('description', '')
         
-        if status == 'STATUS_SCHEDULED':
-            return 'SCHEDULED', status_detail, '⏰'
-        elif status == 'STATUS_IN_PROGRESS':
-            return 'LIVE', status_detail, '🎮'
-        elif status == 'STATUS_DELAYED':
-            return 'DELAYED', status_detail, '🔴'
-        elif status == 'STATUS_POSTPONED':
-            return 'POSTPONED', status_detail, '❌'
-        elif status == 'STATUS_FINAL':
-            return 'COMPLETED', status_detail, '✅'
-        else:
-            return status.replace('STATUS_', ''), status_detail, '❓'
-    except Exception as e:
-        print(f"ERROR parsing game status: {e}")
-        return 'UNKNOWN', '', '❓'
-
-
-def get_game_details(event: Dict) -> Dict:
-    """Extract game details."""
-    try:
-        competitors = event.get('competitions', [{}])[0].get('competitors', [])
+        competitors = event.get('competitors', [])
+        home_team = competitors[0].get('team', {}).get('displayName', 'Unknown') if len(competitors) > 0 else 'Unknown'
+        away_team = competitors[1].get('team', {}).get('displayName', 'Unknown') if len(competitors) > 1 else 'Unknown'
         
-        home_team = competitors[0] if len(competitors) > 0 else {}
-        away_team = competitors[1] if len(competitors) > 1 else {}
+        home_score = competitors[0].get('score', 0) if len(competitors) > 0 else 0
+        away_score = competitors[1].get('score', 0) if len(competitors) > 1 else 0
         
         return {
-            'home_team': home_team.get('team', {}).get('name', 'Unknown'),
-            'away_team': away_team.get('team', {}).get('name', 'Unknown'),
-            'home_score': home_team.get('score', '-'),
-            'away_score': away_team.get('score', '-'),
-            'start_time': event.get('date', ''),
-            'venue': event.get('competitions', [{}])[0].get('venue', {}).get('fullName', 'Unknown'),
+            'game_id': event.get('id'),
+            'home_team': home_team,
+            'away_team': away_team,
+            'status_type': status_type,
+            'status_desc': status_desc,
+            'start_time': event.get('date'),
+            'home_score': home_score,
+            'away_score': away_score,
+            'note': event.get('note', ''),  # May contain delay info
         }
     except Exception as e:
-        print(f"ERROR extracting game details: {e}")
+        print(f"ERROR parsing game status: {e}")
         return {}
 
 
-def build_status_update(active_games: List[Dict]) -> str:
-    """Build Slack status update message."""
-    timestamp = datetime.utcnow().isoformat()
+def detect_weather_delay(game: Dict) -> Tuple[bool, str]:
+    """
+    Detect if game is delayed due to weather.
     
-    message = f"""
-📊 **MLS Game Status Update**
-Timestamp: {timestamp} UTC
+    Returns (is_delayed, delay_reason).
+    """
+    status_desc = game.get('status_desc', '').lower()
+    note = game.get('note', '').lower()
+    
+    # Check for weather delay keywords
+    weather_keywords = ['weather', 'rain', 'lightning', 'thunderstorm', 'wind', 'delay']
+    
+    combined_text = f"{status_desc} {note}"
+    
+    is_weather_delay = any(keyword in combined_text for keyword in weather_keywords)
+    
+    if is_weather_delay:
+        return True, f"Weather delay detected: {game.get('status_desc', 'Unknown reason')}"
+    
+    return False, ""
 
+
+def detect_postponement(game: Dict) -> Tuple[bool, str]:
+    """
+    Detect if game is postponed or cancelled.
+    
+    Returns (is_postponed, reason).
+    """
+    status_type = game.get('status_type', '').lower()
+    status_desc = game.get('status_desc', '').lower()
+    note = game.get('note', '').lower()
+    
+    postpone_keywords = ['postponed', 'cancelled', 'canceled', 'ppd']
+    
+    combined_text = f"{status_type} {status_desc} {note}"
+    
+    is_postponed = any(keyword in combined_text for keyword in postpone_keywords)
+    
+    if is_postponed:
+        return True, f"Game postponed: {game.get('status_desc', 'Unknown reason')}"
+    
+    return False, ""
+
+
+def build_delay_alert_message(game: Dict, delay_reason: str) -> str:
+    """Build Slack alert for a game delay."""
+    return f"""
+🚨 **WEATHER DELAY DETECTED**
+Game: ⚾ {game['away_team']} @ {game['home_team']}
+Status: {game['status_desc']}
+Score: {game['away_team']} {game['away_score']}, {game['home_team']} {game['home_score']}
+Reason: {delay_reason}
+Time: {datetime.utcnow().isoformat()} UTC
+@channel Alert sent
 """
-    
-    # Group by status
-    delayed = [g for g in active_games if g['status'] == 'DELAYED']
-    live = [g for g in active_games if g['status'] == 'LIVE']
-    scheduled = [g for g in active_games if g['status'] == 'SCHEDULED']
-    postponed = [g for g in active_games if g['status'] == 'POSTPONED']
-    
-    if delayed:
-        message += "🔴 **DELAYED GAMES**\n"
-        for game in delayed:
-            message += f"• {game['team_name']} - {game['details']['home_team']} vs {game['details']['away_team']}\n"
-            message += f"  Reason: {game['status_detail'] if game['status_detail'] else 'Weather delay'}\n"
-            message += f"  Stadium: {game['details']['venue']}\n"
-        message += "\n"
-    
-    if live:
-        message += "🎮 **LIVE GAMES**\n"
-        for game in live:
-            message += f"• {game['team_name']} - {game['details']['home_team']} {game['details']['home_score']} vs {game['details']['away_score']} {game['details']['away_team']}\n"
-        message += "\n"
-    
-    if scheduled:
-        message += f"⏰ **UPCOMING** ({len(scheduled)} games)\n"
-        for game in scheduled:
-            message += f"• {game['team_name']} - {game['details']['home_team']} vs {game['details']['away_team']}\n"
-        message += "\n"
-    
-    if postponed:
-        message += "❌ **POSTPONED**\n"
-        for game in postponed:
-            message += f"• {game['team_name']} - {game['details']['home_team']} vs {game['details']['away_team']}\n"
-        message += "\n"
-    
-    if not delayed and not postponed:
-        message += "_No delays or postponements at this time._\n"
-    
-    message += "_Next update in 10 minutes_"
-    
-    return message
+
+
+def build_postponement_alert_message(game: Dict, postpone_reason: str) -> str:
+    """Build Slack alert for a postponement."""
+    return f"""
+📅 **GAME POSTPONED**
+Game: ⚾ {game['away_team']} @ {game['home_team']}
+Status: {game['status_desc']}
+Reason: {postpone_reason}
+Time: {datetime.utcnow().isoformat()} UTC
+@channel Alert sent
+"""
+
+
+def build_resumption_alert_message(game: Dict) -> str:
+    """Build Slack alert for game resumption."""
+    return f"""
+✅ **GAME RESUMING**
+Game: ⚾ {game['away_team']} @ {game['home_team']}
+Status: In Progress
+Score: {game['away_team']} {game['away_score']}, {game['home_team']} {game['home_score']}
+Time: {datetime.utcnow().isoformat()} UTC
+"""
 
 
 def send_to_slack(webhook_url: str, message: str) -> bool:
     """Send message to Slack webhook."""
     if not webhook_url:
-        print("WARNING: SLACK_WEBHOOK_URL not configured")
+        print("WARNING: SLACK_WEBHOOK_URL_HIGH_RISK not configured")
         return False
     
     try:
@@ -185,7 +173,7 @@ def send_to_slack(webhook_url: str, message: str) -> bool:
         }
         response = requests.post(webhook_url, json=payload, timeout=10)
         response.raise_for_status()
-        print("✅ Status update sent to Slack")
+        print("✅ Alert sent to Slack")
         return True
     except Exception as e:
         print(f"ERROR sending to Slack: {e}")
@@ -194,67 +182,73 @@ def send_to_slack(webhook_url: str, message: str) -> bool:
 
 def main():
     """Main game status monitor function."""
-    print("📊 Starting MLS game status monitor...")
+    print("📊 Starting MLS Game Status Monitor...")
     
-    # Load stadiums
-    stadiums = filter_roofed_stadiums(load_stadiums())
-    if not stadiums:
-        print("ERROR: No stadiums loaded")
+    # Fetch today's games
+    games = get_mls_games_today()
+    
+    if not games:
+        print("✅ No MLS games today")
         return
     
-    # Get MLS schedule
-    schedule = get_mls_schedule()
-    if not schedule:
-        print("WARNING: No schedule data available")
+    print(f"📋 Found {len(games)} game(s) today")
     
-    active_games = []
+    webhook_url = os.getenv('SLACK_WEBHOOK_URL_HIGH_RISK')
     
-    for stadium in stadiums:
-        team_id = stadium.get('team_id')
-        team_name = stadium.get('team_name')
-        city = stadium.get('city')
+    # Process each game
+    for event in games:
+        game = parse_game_status(event)
         
-        try:
-            # Get game for this team
-            game = get_game_for_stadium(team_id, schedule)
-            
-            if not game:
-                continue
-            
-            # Check game status
-            status, status_detail, emoji = check_game_status(game)
-            
-            # Get game details
-            details = get_game_details(game)
-            
-            # Log event
-            log_event("GAME_STATUS", team_id, f"{status} - {status_detail}")
-            
-            # Add to active games
-            active_games.append({
-                'team_id': team_id,
-                'team_name': team_name,
-                'city': city,
-                'status': status,
-                'status_detail': status_detail,
-                'emoji': emoji,
-                'details': details,
-            })
-            
-            print(f"{emoji} {team_name}: {status}")
+        if not game:
+            continue
         
-        except Exception as e:
-            print(f"ERROR processing {team_name}: {e}")
+        game_id = game.get('game_id')
+        matchup = f"{game['away_team']} @ {game['home_team']}"
+        status = game.get('status_desc', 'Unknown')
+        
+        print(f"\n📌 {matchup}")
+        print(f"   Status: {status}")
+        
+        # Check for postponement (highest priority)
+        is_postponed, postpone_reason = detect_postponement(game)
+        if is_postponed:
+            print(f"   ⚠️  POSTPONED: {postpone_reason}")
+            log_event("GAME_POSTPONED", game_id, postpone_reason)
+            message = build_postponement_alert_message(game, postpone_reason)
+            send_to_slack(webhook_url, message)
+            continue
+        
+        # Check for weather delay
+        is_delayed, delay_reason = detect_weather_delay(game)
+        if is_delayed:
+            print(f"   ⚠️  DELAYED: {delay_reason}")
+            log_event("WEATHER_DELAY", game_id, delay_reason)
+            message = build_delay_alert_message(game, delay_reason)
+            send_to_slack(webhook_url, message)
+            continue
+        
+        # Check if game is in progress (may be resuming from delay)
+        if 'in progress' in status.lower() or 'live' in status.lower():
+            print(f"   ✅ In Progress")
+            log_event("GAME_IN_PROGRESS", game_id, status)
+            # Optional: Send resumption alert
+            # message = build_resumption_alert_message(game)
+            # send_to_slack(webhook_url, message)
+        
+        # Check if game is final
+        elif 'final' in status.lower():
+            print(f"   ✅ Final")
+            log_event("GAME_FINAL", game_id, status)
+        
+        # Game scheduled
+        elif 'scheduled' in status.lower():
+            print(f"   ⏰ Scheduled")
+            log_event("GAME_SCHEDULED", game_id, status)
+        
+        else:
+            print(f"   ℹ️  {status}")
     
-    # Build and send status update if there are active games
-    if active_games:
-        message = build_status_update(active_games)
-        webhook_url = os.getenv('SLACK_WEBHOOK_URL')
-        send_to_slack(webhook_url, message)
-    else:
-        print("✅ No active games today")
-    
-    print("✅ Game status monitor complete")
+    print("\n✅ Game Status Monitor complete")
 
 
 if __name__ == "__main__":
