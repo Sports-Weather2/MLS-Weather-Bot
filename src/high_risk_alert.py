@@ -281,13 +281,22 @@ def main():
         except Exception as e:
             print(f"ERROR processing {team_name}: {e}")
     
-    # Build and send Slack message if there are alerts
+    # Build and send Slack message
+    webhook_url = os.getenv('SLACK_WEBHOOK_URL_HIGH_RISK')
+    
     if alert_stadiums:
         message = build_high_risk_message(alert_stadiums)
-        webhook_url = os.getenv('SLACK_WEBHOOK_URL_HIGH_RISK')
         send_to_slack(webhook_url, message)
+        print(f"✅ Sent {len(alert_stadiums)} alert(s) to Slack")
     else:
-        print("✅ No high-risk alerts triggered")
+        # Send "All Clear" message so we know the script ran
+        all_clear_message = """✅ **MLS High-Risk Weather Check - All Clear**
+Time: {}
+Status: No high-risk weather detected across all 23 open-air MLS stadiums.
+Next check: 10 minutes
+Roofed stadiums excluded: ATL, HOU, VAN""".format(datetime.utcnow().isoformat())
+        send_to_slack(webhook_url, all_clear_message)
+        print("✅ All Clear message sent to Slack")
     
     print("✅ High-risk alert check complete")
 
