@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.Python
+venv/
+.vscode/
+.idea/
+.DS_Store
+.env
+config/secrets.json
+*.log
