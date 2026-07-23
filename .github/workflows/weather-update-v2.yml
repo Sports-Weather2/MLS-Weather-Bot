@@ -27,6 +27,7 @@ jobs:
       - name: Run weather check
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_URL_HIGH_RISK: ${{ secrets.SLACK_WEBHOOK_URL_HIGH_RISK }}
         run: python -m src.weather_check
       
       - name: Log completion
