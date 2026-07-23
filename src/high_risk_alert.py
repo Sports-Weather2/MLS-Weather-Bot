@@ -2,7 +2,7 @@
 High-risk weather alert monitor for MLS teams.
 Runs at 10:00 AM PT via GitHub Actions.
 Monitors every 10 minutes from 10 AM–10 PM PT for severe conditions.
-Sends alerts to #mls-high-risk-weather Slack channel.
+Sends alerts to #mls-high-risk-alerts Slack channel.
 """
 
 import os
@@ -172,7 +172,7 @@ def assess_high_risk_alert(weather: Dict) -> Tuple[bool, str, str, str]:
 
 
 def build_high_risk_message(alert_stadiums: List[Dict]) -> str:
-    """Build Slack alert message for #mls-high-risk-weather."""
+    """Build Slack alert message for #mls-high-risk-alerts."""
     timestamp = datetime.utcnow().isoformat()
     
     message = f"""
@@ -215,7 +215,7 @@ Total Alerts: {len(alert_stadiums)}
 def send_to_slack(webhook_url: str, message: str) -> bool:
     """Send message to Slack webhook."""
     if not webhook_url:
-        print("WARNING: SLACK_WEBHOOK_URL not configured")
+        print("WARNING: SLACK_WEBHOOK_URL_HIGH_RISK not configured")
         return False
     
     try:
@@ -284,7 +284,7 @@ def main():
     # Build and send Slack message if there are alerts
     if alert_stadiums:
         message = build_high_risk_message(alert_stadiums)
-        webhook_url = os.getenv('SLACK_WEBHOOK_URL')
+        webhook_url = os.getenv('SLACK_WEBHOOK_URL_HIGH_RISK')
         send_to_slack(webhook_url, message)
     else:
         print("✅ No high-risk alerts triggered")
