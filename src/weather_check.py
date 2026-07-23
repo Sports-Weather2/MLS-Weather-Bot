@@ -1,7 +1,7 @@
 """
 Daily weather check for MLS teams.
 Runs at 7:00 AM PT via GitHub Actions.
-Sends full report to #gameday-weather Slack channel.
+Sends full report to #mls-gameday-weather Slack channel.
 """
 
 import os
@@ -133,7 +133,7 @@ def assess_weather_condition(weather: Dict) -> Tuple[str, str, str]:
 
 
 def build_slack_message(stadiums_weather: List[Dict]) -> str:
-    """Build Slack message for #gameday-weather channel."""
+    """Build Slack message for #mls-gameday-weather channel."""
     timestamp = datetime.utcnow().isoformat()
     
     message = f"""
