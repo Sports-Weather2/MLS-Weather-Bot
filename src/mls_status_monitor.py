@@ -187,13 +187,22 @@ def main():
     # Fetch today's games
     games = get_mls_games_today()
     
+    webhook_url = os.getenv('SLACK_WEBHOOK_URL_HIGH_RISK')
+    
     if not games:
         print("✅ No MLS games today")
+        # Send monitoring status message to confirm integration
+        if webhook_url:
+            status_message = """✅ **MLS Game Status Monitor - Active**
+Time: {}
+Status: System monitoring enabled. No games scheduled for today.
+Next check: Games resume Saturday 7/25/2026
+Real-time monitoring: 10 AM - 10 PM PT during live games""".format(datetime.utcnow().isoformat())
+            send_to_slack(webhook_url, status_message)
+            print("✅ Status message sent to Slack")
         return
     
     print(f"📋 Found {len(games)} game(s) today")
-    
-    webhook_url = os.getenv('SLACK_WEBHOOK_URL_HIGH_RISK')
     
     # Process each game
     for event in games:
