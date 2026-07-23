@@ -1,0 +1,33 @@
+name: Daily Weather Report
+
+on:
+  schedule:
+    # 7:00 AM PT = 14:00 UTC (daily)
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+
+jobs:
+  weather-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run weather check
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: python -m src.weather_check
+      
+      - name: Log completion
+        run: echo "✅ Daily weather check completed at $(date)"
