@@ -28,6 +28,7 @@ jobs:
       - name: Run game status monitor
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_URL_HIGH_RISK: ${{ secrets.SLACK_WEBHOOK_URL_HIGH_RISK }}
         run: python -m src.mls_status_monitor
       
       - name: Log completion
