@@ -4,24 +4,17 @@ import json
 from datetime import datetime, timedelta
 import pytz
 
-# Get environment variables
 SLACK_WEBHOOK_URL = os.getenv('SLACK_WEBHOOK_URL')
 OPENWEATHERMAP_API_KEY = os.getenv('OPENWEATHERMAP_API_KEY')
-
-# ESPN API base
 ESPN_MLS_SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard'
 
-# Load stadium config
 with open('config/mls_stadiums.json', 'r') as f:
     STADIUMS = json.load(f)
 
-# Timezone for PT
 PT = pytz.timezone('America/Los_Angeles')
 
 def get_mls_games_for_date(target_date=None):
-    """
-    Fetch MLS games for a specific date from ESPN API.
-    """
+    """Fetch MLS games for a specific date."""
     try:
         if target_date is None:
             target_date = datetime.now(PT).date()
@@ -38,14 +31,11 @@ def get_mls_games_for_date(target_date=None):
         print(f"Found {len(games)} games on {date_str}")
         return games
     except Exception as e:
-        print(f"Error fetching games for {target_date}: {e}")
+        print(f"Error fetching games: {e}")
         return []
 
 def get_next_scheduled_game():
-    """
-    Find the next scheduled MLS game.
-    Queries ESPN API for next 14 days in one call.
-    """
+    """Find next scheduled game with detailed debugging."""
     try:
         tomorrow = datetime.now(PT).date() + timedelta(days=1)
         end_date = tomorrow + timedelta(days=13)
@@ -68,24 +58,56 @@ def get_next_scheduled_game():
             print("No events found")
             return None
         
-        # Find first valid game
-        for event in events:
+        # DEBUG: Print first event structure
+        print(f"\n=== FIRST EVENT STRUCTURE ===")
+        print(json.dumps(events[0], indent=2)[:500])
+        print("=== END STRUCTURE ===\n")
+        
+        # Try to find a valid game
+        for idx, event in enumerate(events):
             try:
-                # Safely navigate the structure
-                comp = event.get('competitions', [{}])[0]
+                print(f"\nProcessing event {idx}...")
+                
+                # Print what we're looking for
+                print(f"Keys in event: {event.keys()}")
+                
+                if 'competitions' not in event:
+                    print(f"  ❌ No 'competitions' key")
+                    continue
+                
+                comps = event.get('competitions', [])
+                print(f"  Found {len(comps)} competitions")
+                
+                if not comps:
+                    print(f"  ❌ Empty competitions list")
+                    continue
+                
+                comp = comps[0]
+                print(f"  Keys in competition: {comp.keys()}")
+                
                 home = comp.get('home', {})
                 away = comp.get('away', {})
+                
+                print(f"  Home keys: {home.keys() if home else 'MISSING'}")
+                print(f"  Away keys: {away.keys() if away else 'MISSING'}")
+                
+                if not home or not away:
+                    print(f"  ❌ Missing home or away")
+                    continue
                 
                 home_team = home.get('team', {}).get('displayName', '')
                 away_team = away.get('team', {}).get('displayName', '')
                 
-                # Skip if no valid teams
+                print(f"  Home team: {home_team}")
+                print(f"  Away team: {away_team}")
+                
                 if not home_team or not away_team:
+                    print(f"  ❌ Invalid team names")
                     continue
                 
-                # Parse date
                 date_str = event.get('date', '')
                 if not date_str:
+                    print(f"  ❌ No date")
                     continue
                 
                 game_date_utc = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
@@ -94,7 +116,7 @@ def get_next_scheduled_game():
                 formatted_date = game_date_pt.strftime('%A, %B %d')
                 formatted_time = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
                 
-                print(f"✅ FOUND: {away_team} @ {home_team} on {formatted_date} at {formatted_time}")
+                print(f"  ✅ VALID GAME FOUND!")
                 
                 return {
                     'date': formatted_date,
@@ -104,22 +126,20 @@ def get_next_scheduled_game():
                 }
             
             except Exception as e:
-                print(f"Skipping event: {e}")
+                print(f"  Error processing: {e}")
                 continue
         
-        print("No valid games found after filtering all events")
+        print("\n❌ No valid games found after checking all events")
         return None
     
     except Exception as e:
-        print(f"Error in get_next_scheduled_game: {e}")
+        print(f"Error: {e}")
         import traceback
         traceback.print_exc()
         return None
 
 def post_no_games_message():
-    """
-    Post 'No games scheduled today' message.
-    """
+    """Post no games message."""
     try:
         next_game = get_next_scheduled_game()
         
@@ -171,18 +191,15 @@ def post_no_games_message():
             ]
         
         message = {"blocks": blocks}
-        
         response = requests.post(SLACK_WEBHOOK_URL, json=message, timeout=10)
         response.raise_for_status()
         print("✅ Message posted to Slack")
         
     except Exception as e:
-        print(f"Error posting message: {e}")
+        print(f"Error posting: {e}")
 
 def post_gameday_weather_report(games):
-    """
-    Post gameday weather report.
-    """
+    """Post gameday report."""
     try:
         from utils import get_weather_for_stadium, get_risk_level, get_delay_probability
         
@@ -224,11 +241,10 @@ def post_gameday_weather_report(games):
                 })
             
             except Exception as e:
-                print(f"Error processing game: {e}")
+                print(f"Error: {e}")
                 continue
         
         if not game_data:
-            print("No games with valid weather data")
             post_no_games_message()
             return
         
@@ -240,7 +256,7 @@ def post_gameday_weather_report(games):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "⚽ *MLS Daily Weather Report*"
+                    "text": ":soccer: *MLS Daily Weather Report*"
                 }
             },
             {"type": "divider"}
@@ -288,10 +304,10 @@ def post_gameday_weather_report(games):
         message = {"blocks": blocks}
         response = requests.post(SLACK_WEBHOOK_URL, json=message, timeout=10)
         response.raise_for_status()
-        print("✅ Gameday report posted")
+        print("✅ Posted")
         
     except Exception as e:
-        print(f"Error posting gameday report: {e}")
+        print(f"Error: {e}")
 
 def main():
     """Main function."""
@@ -306,7 +322,7 @@ def main():
             post_no_games_message()
     
     except Exception as e:
-        print(f"Error in main: {e}")
+        print(f"Error: {e}")
 
 if __name__ == '__main__':
     main()
