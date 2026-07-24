@@ -35,7 +35,7 @@ def get_mls_games_for_date(target_date=None):
         return []
 
 def get_next_scheduled_game():
-    """Find next scheduled game with detailed debugging."""
+    """Find next scheduled game using competitors array."""
     try:
         tomorrow = datetime.now(PT).date() + timedelta(days=1)
         end_date = tomorrow + timedelta(days=13)
@@ -58,56 +58,34 @@ def get_next_scheduled_game():
             print("No events found")
             return None
         
-        # DEBUG: Print first event structure
-        print(f"\n=== FIRST EVENT STRUCTURE ===")
-        print(json.dumps(events[0], indent=2)[:500])
-        print("=== END STRUCTURE ===\n")
-        
-        # Try to find a valid game
+        # Iterate through events to find first valid game
         for idx, event in enumerate(events):
             try:
-                print(f"\nProcessing event {idx}...")
-                
-                # Print what we're looking for
-                print(f"Keys in event: {event.keys()}")
-                
                 if 'competitions' not in event:
-                    print(f"  ❌ No 'competitions' key")
                     continue
                 
-                comps = event.get('competitions', [])
-                print(f"  Found {len(comps)} competitions")
+                comp = event['competitions'][0]
                 
-                if not comps:
-                    print(f"  ❌ Empty competitions list")
+                # Extract home/away from competitors array
+                competitors = comp.get('competitors', [])
+                
+                home_competitor = next((c for c in competitors if c.get('homeAway') == 'home'), None)
+                away_competitor = next((c for c in competitors if c.get('homeAway') == 'away'), None)
+                
+                if not home_competitor or not away_competitor:
+                    print(f"Event {idx}: Missing home or away competitor")
                     continue
                 
-                comp = comps[0]
-                print(f"  Keys in competition: {comp.keys()}")
-                
-                home = comp.get('home', {})
-                away = comp.get('away', {})
-                
-                print(f"  Home keys: {home.keys() if home else 'MISSING'}")
-                print(f"  Away keys: {away.keys() if away else 'MISSING'}")
-                
-                if not home or not away:
-                    print(f"  ❌ Missing home or away")
-                    continue
-                
-                home_team = home.get('team', {}).get('displayName', '')
-                away_team = away.get('team', {}).get('displayName', '')
-                
-                print(f"  Home team: {home_team}")
-                print(f"  Away team: {away_team}")
+                home_team = home_competitor.get('team', {}).get('displayName', '')
+                away_team = away_competitor.get('team', {}).get('displayName', '')
                 
                 if not home_team or not away_team:
-                    print(f"  ❌ Invalid team names")
+                    print(f"Event {idx}: Invalid team names")
                     continue
                 
                 date_str = event.get('date', '')
                 if not date_str:
-                    print(f"  ❌ No date")
+                    print(f"Event {idx}: No date")
                     continue
                 
                 game_date_utc = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
@@ -116,7 +94,7 @@ def get_next_scheduled_game():
                 formatted_date = game_date_pt.strftime('%A, %B %d')
                 formatted_time = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
                 
-                print(f"  ✅ VALID GAME FOUND!")
+                print(f"✅ Found valid game: {away_team} @ {home_team}")
                 
                 return {
                     'date': formatted_date,
@@ -126,10 +104,10 @@ def get_next_scheduled_game():
                 }
             
             except Exception as e:
-                print(f"  Error processing: {e}")
+                print(f"Event {idx} error: {e}")
                 continue
         
-        print("\n❌ No valid games found after checking all events")
+        print("❌ No valid games found after checking all events")
         return None
     
     except Exception as e:
@@ -139,7 +117,7 @@ def get_next_scheduled_game():
         return None
 
 def post_no_games_message():
-    """Post no games message."""
+    """Post no games message with next match if available."""
     try:
         next_game = get_next_scheduled_game()
         
@@ -149,7 +127,7 @@ def post_no_games_message():
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": "✅ *No games scheduled today*\n\nMLS Weather Bot is monitoring and will alert on the next game day."
+                        "text": ":soccer: *MLS Daily Weather Report*\n\n✅ *No games scheduled today*\n\nMLS Weather Bot is monitoring and will alert on the next game day."
                     }
                 },
                 {"type": "divider"},
@@ -176,7 +154,7 @@ def post_no_games_message():
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": "✅ *No games scheduled today*\n\nMLS Weather Bot is monitoring and will alert on the next game day."
+                        "text": ":soccer: *MLS Daily Weather Report*\n\n✅ *No games scheduled today*\n\nMLS Weather Bot is monitoring and will alert on the next game day."
                     }
                 },
                 {
@@ -208,8 +186,20 @@ def post_gameday_weather_report(games):
         for game in games:
             try:
                 comp = game['competitions'][0]
-                home_team = comp['home']['team']['displayName']
-                away_team = comp['away']['team']['displayName']
+                
+                # Extract home/away from competitors array
+                competitors = comp.get('competitors', [])
+                home_competitor = next((c for c in competitors if c.get('homeAway') == 'home'), None)
+                away_competitor = next((c for c in competitors if c.get('homeAway') == 'away'), None)
+                
+                if not home_competitor or not away_competitor:
+                    continue
+                
+                home_team = home_competitor.get('team', {}).get('displayName', '')
+                away_team = away_competitor.get('team', {}).get('displayName', '')
+                
+                if not home_team or not away_team:
+                    continue
                 
                 game_date_utc = datetime.fromisoformat(game['date'].replace('Z', '+00:00'))
                 game_date_pt = game_date_utc.astimezone(PT)
