@@ -121,3 +121,161 @@ def log_event(event_type: str, team_id: str, message: str):
     log_entry = f"[{timestamp}] {event_type} - {team_id}: {message}"
     print(log_entry)
     # In production, could write to file or cloud logging service
+
+
+def get_weather_api_for_stadium(stadium: Dict) -> str:
+    """
+    Determine which weather API to use based on stadium location.
+    
+    Returns:
+    - "NWS" for USA stadiums
+    - "OPENWEATHERMAP" for Canada stadiums
+    """
+    country = stadium.get('country', 'USA')
+    
+    if country.upper() == 'CANADA':
+        return "OPENWEATHERMAP"
+    else:
+        return "NWS"
+
+
+def get_nws_weather(latitude: float, longitude: float) -> Dict:
+    """
+    Fetch weather from NWS API (free, no auth required).
+    Used for USA stadiums.
+    """
+    try:
+        # Get grid point data first
+        points_url = f"https://api.weather.gov/points/{latitude},{longitude}"
+        points_response = requests.get(points_url, timeout=10)
+        points_response.raise_for_status()
+        
+        # Extract forecast URL
+        forecast_url = points_response.json()['properties']['forecast']
+        
+        # Get actual forecast
+        forecast_response = requests.get(forecast_url, timeout=10)
+        forecast_response.raise_for_status()
+        
+        return forecast_response.json()
+    except Exception as e:
+        print(f"ERROR fetching NWS weather: {e}")
+        return {}
+
+
+def get_openweathermap_weather(latitude: float, longitude: float, api_key: str) -> Dict:
+    """
+    Fetch weather from OpenWeatherMap API.
+    Used for Canada stadiums.
+    
+    Args:
+        latitude: Stadium latitude
+        longitude: Stadium longitude
+        api_key: OpenWeatherMap API key
+    """
+    try:
+        url = f"https://api.openweathermap.org/data/2.5/forecast?lat={latitude}&lon={longitude}&appid={api_key}&units=metric"
+        
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        
+        return response.json()
+    except Exception as e:
+        print(f"ERROR fetching OpenWeatherMap weather: {e}")
+        return {}
+
+
+def parse_nws_weather_data(weather_data: Dict) -> Dict:
+    """Extract relevant weather metrics from NWS data."""
+    try:
+        periods = weather_data.get('properties', {}).get('periods', [])
+        if not periods:
+            return {}
+        
+        # Get first period
+        period = periods[0]
+        
+        return {
+            'temperature': period.get('temperature'),
+            'temperature_unit': period.get('temperatureUnit'),
+            'wind_speed': period.get('windSpeed'),
+            'wind_direction': period.get('windDirection'),
+            'precipitation_chance': period.get('probabilityOfPrecipitation', {}).get('value'),
+            'short_forecast': period.get('shortForecast'),
+            'detailed_forecast': period.get('detailedForecast'),
+            'time': period.get('startTime'),
+        }
+    except Exception as e:
+        print(f"ERROR parsing NWS weather data: {e}")
+        return {}
+
+
+def parse_openweathermap_weather_data(weather_data: Dict) -> Dict:
+    """Extract relevant weather metrics from OpenWeatherMap data."""
+    try:
+        # Get first forecast period (3 hours from now)
+        list_data = weather_data.get('list', [])
+        if not list_data:
+            return {}
+        
+        period = list_data[0]
+        
+        # Extract temperature (convert from Celsius to Fahrenheit for consistency)
+        temp_c = period.get('main', {}).get('temp', 0)
+        temp_f = (temp_c * 9/5) + 32
+        
+        # Extract wind speed (convert from m/s to mph)
+        wind_mps = period.get('wind', {}).get('speed', 0)
+        wind_mph = wind_mps * 2.237
+        
+        # Extract precipitation probability (OpenWeatherMap gives as decimal 0-1)
+        pop = period.get('pop', 0)
+        precipitation_chance = int(pop * 100)
+        
+        # Extract forecast description
+        description = ''
+        weather_list = period.get('weather', [])
+        if weather_list:
+            description = weather_list[0].get('main', '') + ' - ' + weather_list[0].get('description', '')
+        
+        return {
+            'temperature': int(temp_f),
+            'temperature_unit': 'F',
+            'wind_speed': f"{int(wind_mph)} mph",
+            'wind_direction': '',
+            'precipitation_chance': precipitation_chance,
+            'short_forecast': description,
+            'detailed_forecast': description,
+            'time': period.get('dt_txt'),
+        }
+    except Exception as e:
+        print(f"ERROR parsing OpenWeatherMap weather data: {e}")
+        return {}
+
+
+def get_weather_for_stadium(stadium: Dict, api_key: Optional[str] = None) -> Dict:
+    """
+    Get weather for a stadium using appropriate API.
+    
+    Args:
+        stadium: Stadium dictionary with location info
+        api_key: OpenWeatherMap API key (required for Canada stadiums)
+    
+    Returns:
+        Dictionary with parsed weather data
+    """
+    latitude = stadium.get('latitude')
+    longitude = stadium.get('longitude')
+    api_choice = get_weather_api_for_stadium(stadium)
+    
+    if api_choice == "OPENWEATHERMAP":
+        if not api_key:
+            print(f"ERROR: OpenWeatherMap API key required for {stadium.get('team_name')}")
+            return {}
+        
+        weather_data = get_openweathermap_weather(latitude, longitude, api_key)
+        return parse_openweathermap_weather_data(weather_data)
+    
+    else:  # NWS
+        weather_data = get_nws_weather(latitude, longitude)
+        return parse_nws_weather_data(weather_data)
