@@ -35,7 +35,7 @@ def get_mls_games_for_date(target_date=None):
 def post_high_risk_alert(high_risk_games, all_clear=False):
     """Post high-risk weather alerts to Slack."""
     try:
-        from utils import get_weather_for_stadium, get_air_quality, get_aqi_category
+        from src.utils import get_weather_for_stadium, get_air_quality, get_aqi_category
         
         now_pt = datetime.now(PT)
         
@@ -164,7 +164,7 @@ def post_high_risk_alert(high_risk_games, all_clear=False):
 def check_high_risk_games():
     """Check today's games for high-risk weather and air quality."""
     try:
-        from utils import get_weather_for_stadium, get_risk_level, get_delay_probability, get_air_quality, get_aqi_category
+        from src.utils import get_weather_for_stadium, get_risk_level, get_delay_probability, get_air_quality, get_aqi_category
         
         print("🔍 Starting MLS high-risk weather alert check...")
         
