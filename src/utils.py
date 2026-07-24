@@ -1,281 +1,298 @@
-"""
-Utility functions for MLS Weather Bot.
-"""
-
-import json
+import os
 import requests
+import json
+import re
 import pytz
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
 
+OPENWEATHERMAP_API_KEY = os.getenv('OPENWEATHERMAP_API_KEY')
+NWS_POINTS_URL = 'https://api.weather.gov/points'
+NWS_FORECAST_URL = 'https://api.weather.gov/gridpoints'
 
-def load_stadiums() -> List[Dict]:
-    """Load MLS stadium configuration from JSON file."""
+with open('config/mls_stadiums.json', 'r') as f:
+    STADIUMS = json.load(f)
+
+def get_air_quality(lat, lon):
+    """Fetch air quality data from OpenWeatherMap Air Pollution API."""
     try:
-        with open('config/mls_stadiums.json', 'r') as f:
-            data = json.load(f)
-            return data.get('teams', [])
-    except FileNotFoundError:
-        print("ERROR: config/mls_stadiums.json not found")
-        return []
-    except json.JSONDecodeError:
-        print("ERROR: Invalid JSON in config/mls_stadiums.json")
-        return []
-
-
-def get_stadium_by_team_id(team_id: str, stadiums: List[Dict]) -> Optional[Dict]:
-    """Get stadium info by team ID."""
-    for stadium in stadiums:
-        if stadium.get('team_id') == team_id:
-            return stadium
-    return None
-
-
-def get_local_time(latitude: float, longitude: float) -> datetime:
-    """Get current local time at given coordinates using timezone."""
-    # Determine timezone from stadiums list
-    stadiums = load_stadiums()
-    for stadium in stadiums:
-        if (abs(stadium['latitude'] - latitude) < 0.01 and 
-            abs(stadium['longitude'] - longitude) < 0.01):
-            tz = pytz.timezone(stadium['timezone'])
-            return datetime.now(tz)
-    
-    # Fallback to UTC if not found
-    return datetime.now(pytz.UTC)
-
-
-def format_alert_message(team_name: str, stadium: str, city: str, 
-                        condition: str, reason: str) -> str:
-    """Format alert message for Slack."""
-    return f"""
-🚨 **{team_name}** ({city})
-Stadium: {stadium}
-Condition: {condition}
-Reason: {reason}
-"""
-
-
-def is_game_day(team_id: str) -> bool:
-    """Check if there's a game scheduled for the team today."""
-    # Placeholder for ESPN/MLS API integration
-    return True
-
-
-def filter_roofed_stadiums(stadiums: List[Dict]) -> List[Dict]:
-    """Return only open-air stadiums (exclude roofed ones)."""
-    return [s for s in stadiums if not s.get('roofed', False)]
-
-
-def get_timezone_for_stadium(stadium: Dict) -> pytz.timezone:
-    """Get pytz timezone object for a stadium."""
-    return pytz.timezone(stadium.get('timezone', 'US/Eastern'))
-
-
-def convert_time_to_local(dt: datetime, timezone_str: str) -> datetime:
-    """Convert datetime to local timezone."""
-    tz = pytz.timezone(timezone_str)
-    if dt.tzinfo is None:
-        dt = pytz.UTC.localize(dt)
-    return dt.astimezone(tz)
-
-
-def parse_weather_code(code: int) -> Tuple[str, str]:
-    """
-    Parse WMO weather code to description and emoji.
-    Returns (description, emoji).
-    """
-    weather_codes = {
-        0: ("Clear sky", "☀️"),
-        1: ("Mainly clear", "🌤️"),
-        2: ("Partly cloudy", "⛅"),
-        3: ("Overcast", "☁️"),
-        45: ("Foggy", "🌫️"),
-        48: ("Foggy (rime)", "🌫️"),
-        51: ("Light drizzle", "🌧️"),
-        53: ("Moderate drizzle", "🌧️"),
-        55: ("Dense drizzle", "🌧️"),
-        61: ("Slight rain", "🌧️"),
-        63: ("Moderate rain", "🌧️"),
-        65: ("Heavy rain", "⛈️"),
-        71: ("Slight snow", "❄️"),
-        73: ("Moderate snow", "❄️"),
-        75: ("Heavy snow", "❄️"),
-        77: ("Snow grains", "❄️"),
-        80: ("Slight rain showers", "🌧️"),
-        81: ("Moderate rain showers", "🌧️"),
-        82: ("Violent rain showers", "⛈️"),
-        85: ("Slight snow showers", "❄️"),
-        86: ("Heavy snow showers", "❄️"),
-        95: ("Thunderstorm", "⛈️"),
-        96: ("Thunderstorm with hail", "⛈️"),
-        99: ("Thunderstorm with hail", "⛈️"),
-    }
-    desc, emoji = weather_codes.get(code, ("Unknown", "❓"))
-    return desc, emoji
-
-
-def log_event(event_type: str, team_id: str, message: str):
-    """Log event for debugging and audit trail."""
-    timestamp = datetime.now().isoformat()
-    log_entry = f"[{timestamp}] {event_type} - {team_id}: {message}"
-    print(log_entry)
-    # In production, could write to file or cloud logging service
-
-
-def get_weather_api_for_stadium(stadium: Dict) -> str:
-    """
-    Determine which weather API to use based on stadium location.
-    
-    Returns:
-    - "NWS" for USA stadiums
-    - "OPENWEATHERMAP" for Canada stadiums
-    """
-    country = stadium.get('country', 'USA')
-    
-    if country.upper() == 'CANADA':
-        return "OPENWEATHERMAP"
-    else:
-        return "NWS"
-
-
-def get_nws_weather(latitude: float, longitude: float) -> Dict:
-    """
-    Fetch weather from NWS API (free, no auth required).
-    Used for USA stadiums.
-    """
-    try:
-        # Get grid point data first
-        points_url = f"https://api.weather.gov/points/{latitude},{longitude}"
-        points_response = requests.get(points_url, timeout=10)
-        points_response.raise_for_status()
-        
-        # Extract forecast URL
-        forecast_url = points_response.json()['properties']['forecast']
-        
-        # Get actual forecast
-        forecast_response = requests.get(forecast_url, timeout=10)
-        forecast_response.raise_for_status()
-        
-        return forecast_response.json()
-    except Exception as e:
-        print(f"ERROR fetching NWS weather: {e}")
-        return {}
-
-
-def get_openweathermap_weather(latitude: float, longitude: float, api_key: str) -> Dict:
-    """
-    Fetch weather from OpenWeatherMap API.
-    Used for Canada stadiums.
-    
-    Args:
-        latitude: Stadium latitude
-        longitude: Stadium longitude
-        api_key: OpenWeatherMap API key
-    """
-    try:
-        url = f"https://api.openweathermap.org/data/2.5/forecast?lat={latitude}&lon={longitude}&appid={api_key}&units=metric"
+        url = f"https://api.openweathermap.org/data/2.5/air_pollution?lat={lat}&lon={lon}&appid={OPENWEATHERMAP_API_KEY}"
         
         response = requests.get(url, timeout=10)
         response.raise_for_status()
+        data = response.json()
         
-        return response.json()
+        # Extract AQI (OpenWeatherMap uses 1-5 scale)
+        aqi_value = data.get('list', [{}])[0].get('main', {}).get('aqi', 0)
+        
+        # Convert OpenWeatherMap scale (1-5) to standard AQI scale (0-500)
+        # OpenWeatherMap: 1=Good, 2=Fair, 3=Moderate, 4=Poor, 5=Very Poor
+        aqi_conversion = {
+            1: 50,    # Good (0-50)
+            2: 100,   # Fair (51-100)
+            3: 150,   # Moderate (101-150)
+            4: 200,   # Poor (151-200)
+            5: 300    # Very Poor (201+)
+        }
+        
+        aqi_standard = aqi_conversion.get(aqi_value, 0)
+        
+        # Get pollutant details
+        components = data.get('list', [{}])[0].get('components', {})
+        pm25 = round(components.get('pm2_5', 0), 1)
+        pm10 = round(components.get('pm10', 0), 1)
+        
+        print(f"✅ Air Quality fetched: AQI={aqi_standard}, PM2.5={pm25}, PM10={pm10}")
+        
+        return {
+            'aqi': aqi_standard,
+            'aqi_level': aqi_value,  # 1-5 scale for reference
+            'pm25': pm25,
+            'pm10': pm10,
+            'source': 'OpenWeatherMap'
+        }
+    
     except Exception as e:
-        print(f"ERROR fetching OpenWeatherMap weather: {e}")
-        return {}
+        print(f"❌ Error fetching air quality: {e}")
+        return None
 
+def get_aqi_category(aqi_value):
+    """Convert AQI value to category and emoji."""
+    if aqi_value <= 50:
+        return {'category': 'Good', 'emoji': '🟢', 'level': 'CLEAR'}
+    elif aqi_value <= 100:
+        return {'category': 'Moderate', 'emoji': '🟡', 'level': 'MONITOR'}
+    elif aqi_value <= 150:
+        return {'category': 'Unhealthy for Sensitive Groups', 'emoji': '🟠', 'level': 'MONITOR'}
+    elif aqi_value <= 200:
+        return {'category': 'Unhealthy', 'emoji': '🔴', 'level': 'HIGH RISK'}
+    elif aqi_value <= 300:
+        return {'category': 'Very Unhealthy', 'emoji': '🟣', 'level': 'HIGH RISK'}
+    else:
+        return {'category': 'Hazardous', 'emoji': '🔴', 'level': 'CRITICAL'}
 
-def parse_nws_weather_data(weather_data: Dict) -> Dict:
-    """Extract relevant weather metrics from NWS data."""
+def get_weather_for_stadium(stadium_config):
+    """
+    Fetch weather data for a stadium based on country.
+    Routes to NWS (USA) or OpenWeatherMap (Canada).
+    """
     try:
-        periods = weather_data.get('properties', {}).get('periods', [])
+        country = stadium_config.get('country', 'USA')
+        
+        if country == 'USA':
+            return get_nws_weather(stadium_config)
+        elif country == 'Canada':
+            return get_openweathermap_weather(stadium_config)
+        else:
+            print(f"Unknown country: {country}")
+            return None
+    
+    except Exception as e:
+        print(f"Error getting weather: {e}")
+        return None
+
+def get_nws_weather(stadium_config):
+    """Fetch weather from National Weather Service (USA)."""
+    try:
+        lat = stadium_config.get('latitude')
+        lon = stadium_config.get('longitude')
+        
+        # Step 1: Get points data to find forecast URL
+        points_response = requests.get(f"{NWS_POINTS_URL}/{lat},{lon}", timeout=10)
+        points_response.raise_for_status()
+        points_data = points_response.json()
+        
+        forecast_url = points_data.get('properties', {}).get('forecast')
+        if not forecast_url:
+            print(f"No forecast URL found for {stadium_config.get('stadium')}")
+            return None
+        
+        # Step 2: Get hourly forecast
+        forecast_response = requests.get(forecast_url, timeout=10)
+        forecast_response.raise_for_status()
+        forecast_data = forecast_response.json()
+        
+        # Get current period (index 0 for next 1-2 hour period)
+        periods = forecast_data.get('properties', {}).get('periods', [])
         if not periods:
-            return {}
+            print(f"No forecast periods found for {stadium_config.get('stadium')}")
+            return None
         
-        # Get first period
-        period = periods[0]
+        current = periods[0]
+        
+        temperature = current.get('temperature', 0)
+        condition_short = current.get('shortForecast', 'Unknown')
+        
+        # Parse detailed weather text for rain/wind/thunderstorms
+        detailed_text = current.get('detailedForecast', '').lower()
+        
+        # Estimate rain probability (NWS doesn't provide explicit %, so we infer)
+        rain_prob = 0
+        if 'rain' in detailed_text:
+            if 'slight' in detailed_text or 'chance' in detailed_text:
+                rain_prob = 30
+            elif 'likely' in detailed_text:
+                rain_prob = 70
+            else:
+                rain_prob = 50
+        
+        # Check for thunderstorms
+        has_thunderstorms = 'thunderstorm' in detailed_text or 'tstm' in detailed_text
+        
+        # Extract wind speed (look for pattern like "10 mph" or "10-15 mph")
+        wind_speed = 0
+        if 'wind' in detailed_text:
+            wind_match = re.search(r'(\d+)\s*(?:-\d+)?\s*mph', detailed_text)
+            if wind_match:
+                wind_speed = int(wind_match.group(1))
         
         return {
-            'temperature': period.get('temperature'),
-            'temperature_unit': period.get('temperatureUnit'),
-            'wind_speed': period.get('windSpeed'),
-            'wind_direction': period.get('windDirection'),
-            'precipitation_chance': period.get('probabilityOfPrecipitation', {}).get('value'),
-            'short_forecast': period.get('shortForecast'),
-            'detailed_forecast': period.get('detailedForecast'),
-            'time': period.get('startTime'),
+            'temperature': temperature,
+            'conditions': condition_short,
+            'rain_probability': rain_prob,
+            'wind_speed': wind_speed,
+            'thunderstorms': has_thunderstorms,
+            'source': 'NWS'
         }
+    
     except Exception as e:
-        print(f"ERROR parsing NWS weather data: {e}")
-        return {}
+        print(f"Error fetching NWS weather: {e}")
+        return None
 
-
-def parse_openweathermap_weather_data(weather_data: Dict) -> Dict:
-    """Extract relevant weather metrics from OpenWeatherMap data."""
+def get_openweathermap_weather(stadium_config):
+    """Fetch weather from OpenWeatherMap (Canada & backup)."""
     try:
-        # Get first forecast period (3 hours from now)
-        list_data = weather_data.get('list', [])
-        if not list_data:
-            return {}
+        lat = stadium_config.get('latitude')
+        lon = stadium_config.get('longitude')
         
-        period = list_data[0]
+        url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={OPENWEATHERMAP_API_KEY}&units=imperial"
         
-        # Extract temperature (convert from Celsius to Fahrenheit for consistency)
-        temp_c = period.get('main', {}).get('temp', 0)
-        temp_f = (temp_c * 9/5) + 32
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
         
-        # Extract wind speed (convert from m/s to mph)
-        wind_mps = period.get('wind', {}).get('speed', 0)
-        wind_mph = wind_mps * 2.237
+        temperature = data.get('main', {}).get('temp', 0)
+        condition = data.get('weather', [{}])[0].get('main', 'Unknown')
+        wind_speed = data.get('wind', {}).get('speed', 0)
+        clouds = data.get('clouds', {}).get('all', 0)
         
-        # Extract precipitation probability (OpenWeatherMap gives as decimal 0-1)
-        pop = period.get('pop', 0)
-        precipitation_chance = int(pop * 100)
+        # Estimate rain probability from cloud cover
+        rain_prob = clouds // 2  # Simple conversion
         
-        # Extract forecast description
-        description = ''
-        weather_list = period.get('weather', [])
-        if weather_list:
-            description = weather_list[0].get('main', '') + ' - ' + weather_list[0].get('description', '')
+        # Check for thunderstorms in weather description
+        weather_desc = data.get('weather', [{}])[0].get('description', '').lower()
+        has_thunderstorms = 'thunderstorm' in weather_desc
+        
+        # Check for rain in main weather type
+        has_rain = data.get('weather', [{}])[0].get('main', '').lower() in ['rain', 'drizzle']
+        if has_rain and rain_prob < 50:
+            rain_prob = 60
         
         return {
-            'temperature': int(temp_f),
-            'temperature_unit': 'F',
-            'wind_speed': f"{int(wind_mph)} mph",
-            'wind_direction': '',
-            'precipitation_chance': precipitation_chance,
-            'short_forecast': description,
-            'detailed_forecast': description,
-            'time': period.get('dt_txt'),
+            'temperature': temperature,
+            'conditions': condition,
+            'rain_probability': rain_prob,
+            'wind_speed': wind_speed,
+            'thunderstorms': has_thunderstorms,
+            'source': 'OpenWeatherMap'
         }
+    
     except Exception as e:
-        print(f"ERROR parsing OpenWeatherMap weather data: {e}")
-        return {}
+        print(f"Error fetching OpenWeatherMap weather: {e}")
+        return None
 
-
-def get_weather_for_stadium(stadium: Dict, api_key: Optional[str] = None) -> Dict:
+def get_risk_level(weather, stadium_config):
     """
-    Get weather for a stadium using appropriate API.
-    
-    Args:
-        stadium: Stadium dictionary with location info
-        api_key: OpenWeatherMap API key (required for Canada stadiums)
-    
-    Returns:
-        Dictionary with parsed weather data
+    Determine weather risk level and why it triggered.
+    HIGH RISK: Rain ≥80% + thunderstorms, ≥90% rain alone, thunderstorms + wind ≥30mph, 
+               temp ≤35°F + wind ≥20mph, wind ≥40mph
     """
-    latitude = stadium.get('latitude')
-    longitude = stadium.get('longitude')
-    api_choice = get_weather_api_for_stadium(stadium)
-    
-    if api_choice == "OPENWEATHERMAP":
-        if not api_key:
-            print(f"ERROR: OpenWeatherMap API key required for {stadium.get('team_name')}")
-            return {}
+    try:
+        temp = weather.get('temperature', 0)
+        rain = weather.get('rain_probability', 0)
+        wind = weather.get('wind_speed', 0)
+        storms = weather.get('thunderstorms', False)
         
-        weather_data = get_openweathermap_weather(latitude, longitude, api_key)
-        return parse_openweathermap_weather_data(weather_data)
+        why_triggered = ""
+        
+        # Check for HIGH RISK conditions
+        if rain >= 80 and storms:
+            why_triggered = f"Heavy rain ({rain}%) + active thunderstorms"
+            return 'HIGH RISK', why_triggered
+        
+        if rain >= 90:
+            why_triggered = f"Heavy rain ({rain}%) probability"
+            return 'HIGH RISK', why_triggered
+        
+        if storms and wind >= 30:
+            why_triggered = f"Thunderstorms + wind {wind} mph"
+            return 'HIGH RISK', why_triggered
+        
+        if temp <= 35 and wind >= 20:
+            why_triggered = f"Extreme cold ({temp}°F) + wind {wind} mph"
+            return 'HIGH RISK', why_triggered
+        
+        if wind >= 40:
+            why_triggered = f"Extreme wind {wind} mph"
+            return 'HIGH RISK', why_triggered
+        
+        # Check for MONITOR conditions
+        if 35 <= rain <= 79:
+            why_triggered = f"Moderate rain chance ({rain}%)"
+            return 'MONITOR', why_triggered
+        
+        if wind >= 20:
+            why_triggered = f"Wind {wind} mph"
+            return 'MONITOR', why_triggered
+        
+        if 40 <= temp <= 95:
+            why_triggered = f"Temperature {temp}°F"
+            return 'MONITOR', why_triggered
+        
+        if storms:
+            why_triggered = "Thunderstorms expected"
+            return 'MONITOR', why_triggered
+        
+        # CLEAR
+        return 'CLEAR', "Favorable conditions"
     
-    else:  # NWS
-        weather_data = get_nws_weather(latitude, longitude)
-        return parse_nws_weather_data(weather_data)
+    except Exception as e:
+        print(f"Error determining risk level: {e}")
+        return 'UNKNOWN', f"Error: {e}"
+
+def get_delay_probability(risk_level, weather):
+    """
+    Calculate estimated delay probability based on weather conditions.
+    """
+    try:
+        rain = weather.get('rain_probability', 0)
+        wind = weather.get('wind_speed', 0)
+        storms = weather.get('thunderstorms', False)
+        temp = weather.get('temperature', 0)
+        
+        if risk_level == 'HIGH RISK':
+            # Very High probability
+            if rain >= 90 or (rain >= 80 and storms):
+                return '🔴 VERY HIGH — Delay or postponement likely'
+            elif storms and rain >= 50:
+                return '🟠 HIGH — Delay probable at game time'
+            elif wind >= 40:
+                return '🔴 VERY HIGH — Extreme wind hazard'
+            elif temp <= 35 and wind >= 20:
+                return '🟠 HIGH — Extreme cold delay risk'
+            else:
+                return '🟠 HIGH — Delay probable'
+        
+        elif risk_level == 'MONITOR':
+            if storms or wind >= 30:
+                return '🟡 ELEVATED — Monitor closely'
+            elif rain >= 60:
+                return '🟡 ELEVATED — Possible delays'
+            else:
+                return '🟡 ELEVATED — Conditions may impact play'
+        
+        else:
+            return '🟢 LOW — Normal operations expected'
+    
+    except Exception as e:
+        print(f"Error calculating delay probability: {e}")
+        return 'Unknown'
