@@ -2,34 +2,31 @@ name: MLS Game Status Monitor
 
 on:
   schedule:
-    # Every 10 minutes from 10 AM–10 PM PT (17:00–04:00 UTC next day)
-    - cron: '*/10 17-23 * * *'
-    - cron: '*/10 0-4 * * *'
+    - cron: '0 14 * * *'  # 7:00 AM PT = 14:00 UTC (same as weather-update)
   workflow_dispatch:
 
 jobs:
   mls-status-monitor:
     runs-on: ubuntu-latest
-    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      
-      - name: Run game status monitor
+
+      - name: Run MLS game status monitor
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_WEBHOOK_URL_HIGH_RISK: ${{ secrets.SLACK_WEBHOOK_URL_HIGH_RISK }}
+          OPENWEATHERMAP_API_KEY: ${{ secrets.OPENWEATHERMAP_API_KEY }}
         run: python -m src.mls_status_monitor
-      
+
       - name: Log completion
-        run: echo "✅ Game status monitor completed at $(date)"
+        run: echo "✅ MLS status monitor workflow completed at $(date)"
