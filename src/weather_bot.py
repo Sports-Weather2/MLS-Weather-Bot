@@ -85,25 +85,41 @@ def get_next_scheduled_game():
         # Sort by start time (earliest first)
         all_upcoming_games.sort(key=lambda g: g['date'])
         
-        # Get the earliest game
-        game = all_upcoming_games[0]
-        game_date_utc = datetime.fromisoformat(game['date'].replace('Z', '+00:00'))
-        game_date_pt = game_date_utc.astimezone(PT)
+        # Find first valid game (skip malformed entries)
+        for game in all_upcoming_games:
+            try:
+                # Check if game has required structure
+                competition = game.get('competitions', [{}])[0]
+                
+                # Skip if missing home/away data
+                if 'home' not in competition or 'away' not in competition:
+                    print(f"Skipping game with missing home/away data")
+                    continue
+                
+                home_team = competition['home']['team']['displayName']
+                away_team = competition['away']['team']['displayName']
+                
+                game_date_utc = datetime.fromisoformat(game['date'].replace('Z', '+00:00'))
+                game_date_pt = game_date_utc.astimezone(PT)
+                
+                formatted_date = game_date_pt.strftime('%A, %B %d')
+                formatted_time = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
+                
+                print(f"✅ Next earliest game: {away_team} @ {home_team} on {formatted_date} at {formatted_time}")
+                
+                return {
+                    'date': formatted_date,
+                    'time': formatted_time,
+                    'home_team': home_team,
+                    'away_team': away_team
+                }
+            
+            except (KeyError, IndexError, ValueError) as e:
+                print(f"Skipping malformed game entry: {e}")
+                continue
         
-        home_team = game['competitions'][0]['home']['team']['displayName']
-        away_team = game['competitions'][0]['away']['team']['displayName']
-        
-        formatted_date = game_date_pt.strftime('%A, %B %d')
-        formatted_time = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
-        
-        print(f"✅ Next earliest game: {away_team} @ {home_team} on {formatted_date} at {formatted_time}")
-        
-        return {
-            'date': formatted_date,
-            'time': formatted_time,
-            'home_team': home_team,
-            'away_team': away_team
-        }
+        print("❌ No valid games found after filtering")
+        return None
     
     except Exception as e:
         print(f"❌ Error getting next scheduled game: {e}")
