@@ -39,7 +39,7 @@ def post_status_message(status, details=None):
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": "⚾ *MLS Game Status Monitor*"
+                        "text": "⚽ *MLS Game Status Monitor*"
                     }
                 },
                 {"type": "divider"},
@@ -90,7 +90,7 @@ def post_status_message(status, details=None):
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": "⚾ *MLS Game Status Monitor*"
+                        "text": "⚽ *MLS Game Status Monitor*"
                     }
                 },
                 {"type": "divider"},
@@ -140,7 +140,7 @@ def post_status_message(status, details=None):
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": "⚾ *MLS Game Status Alert*"
+                        "text": "⚽ *MLS Game Status Alert*"
                     }
                 },
                 {"type": "divider"},
@@ -197,7 +197,7 @@ def post_status_message(status, details=None):
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": "⚾ *MLS Game Status Alert*"
+                        "text": "⚽ *MLS Game Status Alert*"
                     }
                 },
                 {"type": "divider"},
