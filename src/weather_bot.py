@@ -52,30 +52,35 @@ def get_next_scheduled_game():
     """
     Find the EARLIEST scheduled MLS game starting from tomorrow.
     
-    Checks next 14 days and returns the earliest game by start time.
+    Uses a date RANGE query (more reliable than day-by-day).
     
     Returns:
         Dict with game info or None if no games found
     """
     try:
-        all_upcoming_games = []
+        # Tomorrow to 14 days from now
+        tomorrow = datetime.now(PT).date() + timedelta(days=1)
+        two_weeks_out = tomorrow + timedelta(days=13)
         
-        # Check next 14 days (more generous range)
-        for days_ahead in range(1, 15):
-            future_date = datetime.now(PT).date() + timedelta(days=days_ahead)
-            print(f"Checking {days_ahead} days ahead: {future_date}")
-            
-            games = get_mls_games_for_date(future_date)
-            
-            if games:
-                print(f"✅ Found {len(games)} games on {future_date}")
-                all_upcoming_games.extend(games)
+        start_date_str = tomorrow.strftime('%Y%m%d')
+        end_date_str = two_weeks_out.strftime('%Y%m%d')
+        date_range = f"{start_date_str}-{end_date_str}"
+        
+        url = f"{ESPN_MLS_SCOREBOARD}?dates={date_range}"
+        
+        print(f"Fetching next 14 days of games: {url}")
+        print(f"Date range: {tomorrow} to {two_weeks_out}")
+        
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        all_upcoming_games = data.get('events', [])
+        print(f"Found {len(all_upcoming_games)} games in next 14 days")
         
         if not all_upcoming_games:
             print("❌ No upcoming games found in next 14 days")
             return None
-        
-        print(f"Total upcoming games found: {len(all_upcoming_games)}")
         
         # Sort by start time (earliest first)
         all_upcoming_games.sort(key=lambda g: g['date'])
@@ -175,7 +180,7 @@ def post_no_games_message():
             timeout=10
         )
         response.raise_for_status()
-        print("✅ No-games message posted successfully with next match info")
+        print("✅ No-games message posted successfully")
         
     except Exception as e:
         print(f"❌ Error posting no-games message: {e}")
