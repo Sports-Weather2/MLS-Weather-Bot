@@ -1,7 +1,7 @@
 import os
 import requests
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 
 SLACK_WEBHOOK_URL_HIGH_RISK = os.getenv('SLACK_WEBHOOK_URL_HIGH_RISK')
@@ -40,7 +40,8 @@ def post_high_risk_alert(high_risk_games, all_clear=False):
         now_pt = datetime.now(PT)
         
         if all_clear:
-            # Post "All Clear" message
+            # Post "All Clear - No Games" message
+            next_check = (datetime.now(PT).date() + timedelta(days=1)).strftime('%A, %B %d, %Y')
             blocks = [
                 {
                     "type": "section",
@@ -54,9 +55,31 @@ def post_high_risk_alert(high_risk_games, all_clear=False):
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": "✅ *All Clear*\n\nNo high-risk weather detected for today's games."
+                        "text": "✅ *System Status:* Active & Monitoring"
                     }
                 },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "🟢 *Games Scheduled:* No games today"
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"📅 *Next Check:* {next_check}"
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "ℹ️ Real-time monitoring will resume during next scheduled games."
+                    }
+                },
+                {"type": "divider"},
                 {
                     "type": "context",
                     "elements": [
@@ -172,6 +195,7 @@ def check_high_risk_games():
         
         if not games:
             print("❌ No games scheduled today - skipping alert")
+            post_high_risk_alert([], all_clear=True)
             return
         
         high_risk_games = []
