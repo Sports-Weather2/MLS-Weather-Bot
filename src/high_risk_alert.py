@@ -3,6 +3,7 @@ High-risk weather alert monitor for MLS teams.
 Runs at 10:00 AM PT via GitHub Actions.
 Monitors every 10 minutes from 10 AM–10 PM PT for severe conditions.
 Sends alerts to #mls-high-risk-alerts Slack channel.
+Uses NWS API for USA stadiums and OpenWeatherMap for Canada stadiums.
 """
 
 import os
@@ -14,54 +15,9 @@ from src.utils import (
     load_stadiums,
     filter_roofed_stadiums,
     parse_weather_code,
-    log_event
+    log_event,
+    get_weather_for_stadium
 )
-
-
-def get_nws_weather(latitude: float, longitude: float) -> Dict:
-    """Fetch weather from NWS API (free, no auth required)."""
-    try:
-        # Get grid point data first
-        points_url = f"https://api.weather.gov/points/{latitude},{longitude}"
-        points_response = requests.get(points_url, timeout=10)
-        points_response.raise_for_status()
-        
-        # Extract forecast URL
-        forecast_url = points_response.json()['properties']['forecast']
-        
-        # Get actual forecast
-        forecast_response = requests.get(forecast_url, timeout=10)
-        forecast_response.raise_for_status()
-        
-        return forecast_response.json()
-    except Exception as e:
-        print(f"ERROR fetching NWS weather: {e}")
-        return {}
-
-
-def parse_weather_data(weather_data: Dict) -> Dict:
-    """Extract relevant weather metrics from NWS data."""
-    try:
-        periods = weather_data.get('properties', {}).get('periods', [])
-        if not periods:
-            return {}
-        
-        # Get first period
-        period = periods[0]
-        
-        return {
-            'temperature': period.get('temperature'),
-            'temperature_unit': period.get('temperatureUnit'),
-            'wind_speed': period.get('windSpeed'),
-            'wind_direction': period.get('windDirection'),
-            'precipitation_chance': period.get('probabilityOfPrecipitation', {}).get('value'),
-            'short_forecast': period.get('shortForecast'),
-            'detailed_forecast': period.get('detailedForecast'),
-            'time': period.get('startTime'),
-        }
-    except Exception as e:
-        print(f"ERROR parsing weather data: {e}")
-        return {}
 
 
 def calculate_delay_probability(weather: Dict) -> Tuple[str, str]:
@@ -190,21 +146,21 @@ Total Alerts: {len(alert_stadiums)}
     if very_high:
         message += "🔴 **VERY HIGH DELAY RISK**\n"
         for s in very_high:
-            message += f"• {s['team_name']} ({s['city']}) - {s['reason']}\n"
+            message += f"• {s['team_name']} ({s['city']}, {s['country']}) - {s['reason']}\n"
             message += f"  Temp: {s['weather']['temperature']}°F | Wind: {s['weather']['wind_speed']} | Rain: {s['weather']['precipitation_chance']}%\n"
         message += "\n"
     
     if high:
         message += "🟠 **HIGH DELAY RISK**\n"
         for s in high:
-            message += f"• {s['team_name']} ({s['city']}) - {s['reason']}\n"
+            message += f"• {s['team_name']} ({s['city']}, {s['country']}) - {s['reason']}\n"
             message += f"  Temp: {s['weather']['temperature']}°F | Wind: {s['weather']['wind_speed']} | Rain: {s['weather']['precipitation_chance']}%\n"
         message += "\n"
     
     if elevated:
         message += "🟡 **ELEVATED DELAY RISK** (Monitor closely)\n"
         for s in elevated:
-            message += f"• {s['team_name']} ({s['city']}) - {s['reason']}\n"
+            message += f"• {s['team_name']} ({s['city']}, {s['country']}) - {s['reason']}\n"
         message += "\n"
     
     message += "_Next check in 10 minutes. Roofed stadiums: ATL, HOU, VAN_"
@@ -242,19 +198,22 @@ def main():
         print("ERROR: No stadiums loaded")
         return
     
+    # Get OpenWeatherMap API key for Canada stadiums
+    openweathermap_api_key = os.getenv('OPENWEATHERMAP_API_KEY')
+    if not openweathermap_api_key:
+        print("WARNING: OPENWEATHERMAP_API_KEY not configured (Canada stadiums will fail)")
+    
     alert_stadiums = []
     
     for stadium in stadiums:
         team_id = stadium.get('team_id')
         team_name = stadium.get('team_name')
         city = stadium.get('city')
-        lat = stadium.get('latitude')
-        lon = stadium.get('longitude')
+        country = stadium.get('country', 'USA')
         
         try:
-            # Fetch weather
-            weather_data = get_nws_weather(lat, lon)
-            weather = parse_weather_data(weather_data)
+            # Fetch weather using appropriate API
+            weather = get_weather_for_stadium(stadium, openweathermap_api_key)
             
             if not weather:
                 print(f"⚠️  {team_name}: No weather data")
@@ -269,14 +228,15 @@ def main():
                     'team_id': team_id,
                     'team_name': team_name,
                     'city': city,
+                    'country': country,
                     'weather': weather,
                     'delay_tier': delay_tier,
                     'emoji': emoji,
                     'reason': reason,
                 })
-                print(f"{emoji} ALERT: {team_name} - {reason}")
+                print(f"{emoji} ALERT: {team_name} ({country}) - {reason}")
             else:
-                print(f"✅ {team_name}: {reason}")
+                print(f"✅ {team_name} ({country}): {reason}")
         
         except Exception as e:
             print(f"ERROR processing {team_name}: {e}")
@@ -293,6 +253,7 @@ def main():
         all_clear_message = """✅ **MLS High-Risk Weather Check - All Clear**
 Time: {}
 Status: No high-risk weather detected across all 23 open-air MLS stadiums.
+Coverage: USA (NWS API) + Canada (OpenWeatherMap API)
 Next check: 10 minutes
 Roofed stadiums excluded: ATL, HOU, VAN""".format(datetime.utcnow().isoformat())
         send_to_slack(webhook_url, all_clear_message)
