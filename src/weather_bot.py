@@ -47,43 +47,56 @@ def get_mls_games_for_date(target_date=None):
 
 def get_next_scheduled_game():
     """
-    Find the next scheduled MLS game starting from tomorrow.
+    Find the EARLIEST scheduled MLS game starting from tomorrow.
+    
+    Checks next 7 days and returns the earliest game by start time.
     
     Returns:
         Dict with game info: {
             'date': 'Saturday, July 25',
-            'time': '7:30 PM PT',
+            'time': '2:00 PM PT',
             'home_team': 'New York City FC',
             'away_team': 'New York Red Bulls'
         }
         or None if no games found in next 7 days
     """
     try:
+        all_upcoming_games = []
+        
         # Check next 7 days
         for days_ahead in range(1, 8):
             future_date = datetime.now(PT).date() + timedelta(days=days_ahead)
             games = get_mls_games_for_date(future_date)
             
             if games:
-                # Get first game of that day
-                game = games[0]
-                game_date_utc = datetime.fromisoformat(game['date'].replace('Z', '+00:00'))
-                game_date_pt = game_date_utc.astimezone(PT)
-                
-                home_team = game['competitions'][0]['home']['team']['displayName']
-                away_team = game['competitions'][0]['away']['team']['displayName']
-                
-                formatted_date = game_date_pt.strftime('%A, %B %d')
-                formatted_time = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
-                
-                return {
-                    'date': formatted_date,
-                    'time': formatted_time,
-                    'home_team': home_team,
-                    'away_team': away_team
-                }
+                all_upcoming_games.extend(games)
         
-        return None
+        if not all_upcoming_games:
+            return None
+        
+        # Sort by start time (earliest first) - GUARANTEES we get the earliest
+        all_upcoming_games.sort(key=lambda g: g['date'])
+        
+        # Get the earliest game
+        game = all_upcoming_games[0]
+        game_date_utc = datetime.fromisoformat(game['date'].replace('Z', '+00:00'))
+        game_date_pt = game_date_utc.astimezone(PT)
+        
+        home_team = game['competitions'][0]['home']['team']['displayName']
+        away_team = game['competitions'][0]['away']['team']['displayName']
+        
+        formatted_date = game_date_pt.strftime('%A, %B %d')
+        formatted_time = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
+        
+        print(f"✅ Next earliest game found: {away_team} @ {home_team} on {formatted_date} at {formatted_time}")
+        
+        return {
+            'date': formatted_date,
+            'time': formatted_time,
+            'home_team': home_team,
+            'away_team': away_team
+        }
+    
     except Exception as e:
         print(f"Error getting next scheduled game: {e}")
         return None
@@ -317,7 +330,7 @@ def main():
             print(f"✅ Found {len(today_games)} games today")
             post_gameday_weather_report(today_games)
         else:
-            print("✅ No games today - posting off-day message")
+            print("✅ No games today - posting off-day message with next match")
             post_no_games_message()
     
     except Exception as e:
