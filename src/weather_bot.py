@@ -48,81 +48,103 @@ def get_mls_games_for_date(target_date=None):
         print(f"Error fetching games for {target_date}: {e}")
         return []
 
+def extract_game_info(game):
+    """
+    Safely extract game information from ESPN API response.
+    
+    Returns:
+        Dict with game info or None if extraction fails
+    """
+    try:
+        # Get competition data
+        competition = game.get('competitions', [{}])[0]
+        
+        # Safely get home and away teams
+        home = competition.get('home', {})
+        away = competition.get('away', {})
+        
+        if not home or not away:
+            print("Skipping game: missing home or away data")
+            return None
+        
+        home_team = home.get('team', {}).get('displayName', 'Unknown')
+        away_team = away.get('team', {}).get('displayName', 'Unknown')
+        
+        if not home_team or not away_team or 'Unknown' in [home_team, away_team]:
+            print("Skipping game: invalid team names")
+            return None
+        
+        # Get game date/time
+        try:
+            game_date_utc = datetime.fromisoformat(game['date'].replace('Z', '+00:00'))
+            game_date_pt = game_date_utc.astimezone(PT)
+        except Exception as e:
+            print(f"Skipping game: invalid date format - {e}")
+            return None
+        
+        formatted_date = game_date_pt.strftime('%A, %B %d')
+        formatted_time = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
+        
+        return {
+            'date': formatted_date,
+            'time': formatted_time,
+            'home_team': home_team,
+            'away_team': away_team,
+            'date_obj': game_date_pt
+        }
+    
+    except Exception as e:
+        print(f"Error extracting game info: {e}")
+        return None
+
 def get_next_scheduled_game():
     """
     Find the EARLIEST scheduled MLS game starting from tomorrow.
     
-    Uses a date RANGE query (more reliable than day-by-day).
+    Checks next 14 days individually and returns earliest valid game.
     
     Returns:
-        Dict with game info or None if no games found
+        Dict with game info or None if no valid games found
     """
     try:
-        # Tomorrow to 14 days from now
-        tomorrow = datetime.now(PT).date() + timedelta(days=1)
-        two_weeks_out = tomorrow + timedelta(days=13)
+        all_valid_games = []
         
-        start_date_str = tomorrow.strftime('%Y%m%d')
-        end_date_str = two_weeks_out.strftime('%Y%m%d')
-        date_range = f"{start_date_str}-{end_date_str}"
+        # Check next 14 days
+        for days_ahead in range(1, 15):
+            future_date = datetime.now(PT).date() + timedelta(days=days_ahead)
+            print(f"Checking {days_ahead} days ahead: {future_date}")
+            
+            games = get_mls_games_for_date(future_date)
+            
+            if games:
+                print(f"Found {len(games)} games on {future_date}, extracting valid ones...")
+                for game in games:
+                    game_info = extract_game_info(game)
+                    if game_info:
+                        all_valid_games.append(game_info)
+                        print(f"✅ Valid game added: {game_info['away_team']} @ {game_info['home_team']}")
         
-        url = f"{ESPN_MLS_SCOREBOARD}?dates={date_range}"
-        
-        print(f"Fetching next 14 days of games: {url}")
-        print(f"Date range: {tomorrow} to {two_weeks_out}")
-        
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
-        all_upcoming_games = data.get('events', [])
-        print(f"Found {len(all_upcoming_games)} games in next 14 days")
-        
-        if not all_upcoming_games:
-            print("❌ No upcoming games found in next 14 days")
+        if not all_valid_games:
+            print("❌ No valid upcoming games found in next 14 days")
             return None
         
-        # Sort by start time (earliest first)
-        all_upcoming_games.sort(key=lambda g: g['date'])
+        print(f"Total valid games found: {len(all_valid_games)}")
         
-        # Find first valid game (skip malformed entries)
-        for game in all_upcoming_games:
-            try:
-                # Check if game has required structure
-                competition = game.get('competitions', [{}])[0]
-                
-                # Skip if missing home/away data
-                if 'home' not in competition or 'away' not in competition:
-                    print(f"Skipping game with missing home/away data")
-                    continue
-                
-                home_team = competition['home']['team']['displayName']
-                away_team = competition['away']['team']['displayName']
-                
-                game_date_utc = datetime.fromisoformat(game['date'].replace('Z', '+00:00'))
-                game_date_pt = game_date_utc.astimezone(PT)
-                
-                formatted_date = game_date_pt.strftime('%A, %B %d')
-                formatted_time = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
-                
-                print(f"✅ Next earliest game: {away_team} @ {home_team} on {formatted_date} at {formatted_time}")
-                
-                return {
-                    'date': formatted_date,
-                    'time': formatted_time,
-                    'home_team': home_team,
-                    'away_team': away_team
-                }
-            
-            except (KeyError, IndexError, ValueError) as e:
-                print(f"Skipping malformed game entry: {e}")
-                continue
+        # Sort by date/time and get earliest
+        all_valid_games.sort(key=lambda g: g['date_obj'])
+        earliest_game = all_valid_games[0]
         
-        print("❌ No valid games found after filtering")
-        return None
+        print(f"✅ EARLIEST GAME: {earliest_game['away_team']} @ {earliest_game['home_team']} on {earliest_game['date']} at {earliest_game['time']}")
+        
+        return {
+            'date': earliest_game['date'],
+            'time': earliest_game['time'],
+            'home_team': earliest_game['home_team'],
+            'away_team': earliest_game['away_team']
+        }
     
     except Exception as e:
-        print(f"❌ Error getting next scheduled game: {e}")
+        print(f"❌ Error in get_next_scheduled_game: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -152,7 +174,7 @@ def post_no_games_message():
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"🗓️ *Next Match:* {next_game['date']} at {next_game['time']}\n\n🔷 {next_game['away_team']} @ {next_game['home_team']}"
+                            "text": f"🗓️ *Next Match:* {next_game['date']} at {next_game['time']}\n\n⚽ {next_game['away_team']} @ {next_game['home_team']}"
                         }
                     },
                     {
