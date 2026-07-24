@@ -35,46 +35,49 @@ def get_mls_games_for_date(target_date=None):
         date_str = target_date.strftime('%Y%m%d')
         url = f"{ESPN_MLS_SCOREBOARD}?dates={date_str}"
         
+        print(f"Fetching games from: {url}")
+        
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
         
         games = data.get('events', [])
+        print(f"Found {len(games)} games on {date_str}")
         return games
     except Exception as e:
-        print(f"Error fetching games: {e}")
+        print(f"Error fetching games for {target_date}: {e}")
         return []
 
 def get_next_scheduled_game():
     """
     Find the EARLIEST scheduled MLS game starting from tomorrow.
     
-    Checks next 7 days and returns the earliest game by start time.
+    Checks next 14 days and returns the earliest game by start time.
     
     Returns:
-        Dict with game info: {
-            'date': 'Saturday, July 25',
-            'time': '2:00 PM PT',
-            'home_team': 'New York City FC',
-            'away_team': 'New York Red Bulls'
-        }
-        or None if no games found in next 7 days
+        Dict with game info or None if no games found
     """
     try:
         all_upcoming_games = []
         
-        # Check next 7 days
-        for days_ahead in range(1, 8):
+        # Check next 14 days (more generous range)
+        for days_ahead in range(1, 15):
             future_date = datetime.now(PT).date() + timedelta(days=days_ahead)
+            print(f"Checking {days_ahead} days ahead: {future_date}")
+            
             games = get_mls_games_for_date(future_date)
             
             if games:
+                print(f"✅ Found {len(games)} games on {future_date}")
                 all_upcoming_games.extend(games)
         
         if not all_upcoming_games:
+            print("❌ No upcoming games found in next 14 days")
             return None
         
-        # Sort by start time (earliest first) - GUARANTEES we get the earliest
+        print(f"Total upcoming games found: {len(all_upcoming_games)}")
+        
+        # Sort by start time (earliest first)
         all_upcoming_games.sort(key=lambda g: g['date'])
         
         # Get the earliest game
@@ -88,7 +91,7 @@ def get_next_scheduled_game():
         formatted_date = game_date_pt.strftime('%A, %B %d')
         formatted_time = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
         
-        print(f"✅ Next earliest game found: {away_team} @ {home_team} on {formatted_date} at {formatted_time}")
+        print(f"✅ Next earliest game: {away_team} @ {home_team} on {formatted_date} at {formatted_time}")
         
         return {
             'date': formatted_date,
@@ -98,7 +101,9 @@ def get_next_scheduled_game():
         }
     
     except Exception as e:
-        print(f"Error getting next scheduled game: {e}")
+        print(f"❌ Error getting next scheduled game: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def post_no_games_message():
@@ -174,6 +179,8 @@ def post_no_games_message():
         
     except Exception as e:
         print(f"❌ Error posting no-games message: {e}")
+        import traceback
+        traceback.print_exc()
 
 def post_gameday_weather_report(games):
     """
@@ -314,6 +321,8 @@ def post_gameday_weather_report(games):
         
     except Exception as e:
         print(f"❌ Error posting gameday report: {e}")
+        import traceback
+        traceback.print_exc()
 
 def main():
     """
@@ -335,6 +344,8 @@ def main():
     
     except Exception as e:
         print(f"❌ Error in main: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == '__main__':
     main()
