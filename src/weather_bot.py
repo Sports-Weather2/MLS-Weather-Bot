@@ -1,451 +1,327 @@
-"""
-weather_bot.py
-Updated: July 2026
-Weather APIs: National Weather Service (NWS) for USA + OpenWeatherMap for Canada
-Main coordinator that:
-1. Checks if games are scheduled (ESPN API)
-2. If OFF-DAY: Posts once at 7 AM "no games today"
-3. If GAME-DAY: Posts daily weather report with all games
-"""
-
 import os
-import json
 import requests
-import pytz
+import json
 from datetime import datetime, timedelta
-from src.utils import (
-    load_stadiums,
-    filter_roofed_stadiums,
-    get_weather_for_stadium,
-    log_event
-)
+import pytz
 
-SLACK_WEBHOOK_GAMEDAY = os.environ.get('SLACK_WEBHOOK_URL')
-OPENWEATHERMAP_API_KEY = os.environ.get('OPENWEATHERMAP_API_KEY')
+# Get environment variables
+SLACK_WEBHOOK_URL = os.getenv('SLACK_WEBHOOK_URL')
+OPENWEATHERMAP_API_KEY = os.getenv('OPENWEATHERMAP_API_KEY')
 
-# ─────────────────────────────────────────────────────────────
-# IMPACT THRESHOLDS
-# ─────────────────────────────────────────────────────────────
-IMPACT_RULES = {
-    'high_risk': {
-        'rain_prob':    80,
-        'wind_gust':    30,
-        'lightning':    True,
-        'temp_extreme': [35, 100]
-    },
-    'monitor': {
-        'rain_prob':      35,
-        'wind_sustained': 20,
-        'temp_concern':   [40, 95]
-    }
-}
+# ESPN API base
+ESPN_MLS_SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard'
 
+# Load stadium config
+with open('config/mls_stadiums.json', 'r') as f:
+    STADIUMS = json.load(f)
 
-# ─────────────────────────────────────────────────────────────
-# MLS GAMES FETCH
-# ─────────────────────────────────────────────────────────────
-def get_mls_games_today() -> list:
-    """Fetch MLS games for today from ESPN API."""
+# Timezone for PT
+PT = pytz.timezone('America/Los_Angeles')
+
+def get_mls_games_for_date(target_date=None):
+    """
+    Fetch MLS games for a specific date from ESPN API.
+    
+    Args:
+        target_date: datetime object or None for today
+    
+    Returns:
+        List of games for that date
+    """
     try:
-        today = datetime.utcnow().strftime("%Y%m%d")
-        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard?dates={today}"
+        if target_date is None:
+            target_date = datetime.now(PT).date()
+        
+        date_str = target_date.strftime('%Y%m%d')
+        url = f"{ESPN_MLS_SCOREBOARD}?dates={date_str}"
         
         response = requests.get(url, timeout=10)
         response.raise_for_status()
-        
         data = response.json()
-        events = data.get('events', [])
         
-        return events
+        games = data.get('events', [])
+        return games
     except Exception as e:
-        print(f"ERROR fetching MLS games: {e}")
+        print(f"Error fetching games: {e}")
         return []
 
-
-# ─────────────────────────────────────────────────────────────
-# IMPACT CALCULATION
-# ─────────────────────────────────────────────────────────────
-def calculate_game_impact(weather):
-    """Calculate weather impact level."""
-    rain_prob = weather.get('rain_prob', 0)
-    wind_speed = weather.get('wind_speed', 0)
-    temp = weather.get('temp', 70)
-    has_storm = weather.get('has_thunderstorm', False)
+def get_next_scheduled_game():
+    """
+    Find the next scheduled MLS game starting from tomorrow.
     
-    if (rain_prob >= IMPACT_RULES['high_risk']['rain_prob'] or
-        wind_speed >= IMPACT_RULES['high_risk']['wind_gust'] or
-        has_storm or
-        temp <= IMPACT_RULES['high_risk']['temp_extreme'][0] or
-        temp >= IMPACT_RULES['high_risk']['temp_extreme'][1]):
-        return {
-            'level': 'HIGH_RISK',
-            'emoji': '🔴',
-            'card': '🟥',
-            'status': 'HIGH RISK',
-            'color': '#dc3545'
+    Returns:
+        Dict with game info: {
+            'date': 'Saturday, July 25',
+            'time': '7:30 PM PT',
+            'home_team': 'New York City FC',
+            'away_team': 'New York Red Bulls'
         }
+        or None if no games found in next 7 days
+    """
+    try:
+        # Check next 7 days
+        for days_ahead in range(1, 8):
+            future_date = datetime.now(PT).date() + timedelta(days=days_ahead)
+            games = get_mls_games_for_date(future_date)
+            
+            if games:
+                # Get first game of that day
+                game = games[0]
+                game_date_utc = datetime.fromisoformat(game['date'].replace('Z', '+00:00'))
+                game_date_pt = game_date_utc.astimezone(PT)
+                
+                home_team = game['competitions'][0]['home']['team']['displayName']
+                away_team = game['competitions'][0]['away']['team']['displayName']
+                
+                formatted_date = game_date_pt.strftime('%A, %B %d')
+                formatted_time = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
+                
+                return {
+                    'date': formatted_date,
+                    'time': formatted_time,
+                    'home_team': home_team,
+                    'away_team': away_team
+                }
+        
+        return None
+    except Exception as e:
+        print(f"Error getting next scheduled game: {e}")
+        return None
 
-    elif (rain_prob >= IMPACT_RULES['monitor']['rain_prob'] or
-          wind_speed >= IMPACT_RULES['monitor']['wind_sustained'] or
-          temp <= IMPACT_RULES['monitor']['temp_concern'][0] or
-          temp >= IMPACT_RULES['monitor']['temp_concern'][1]):
-        return {
-            'level': 'MONITOR',
-            'emoji': '🟡',
-            'card': '🟨',
-            'status': 'MONITOR',
-            'color': '#ffc107'
-        }
-
-    else:
-        return {
-            'level': 'CLEAR',
-            'emoji': '🟢',
-            'card': '🟩',
-            'status': 'CLEAR',
-            'color': '#28a745'
-        }
-
-
-def get_delay_probability(weather):
-    """Calculate delay probability tier."""
-    rain_prob = weather.get('rain_prob', 0)
-    temp = weather.get('temp', 70)
-    wind_speed = weather.get('wind_speed', 0)
-    has_storm = weather.get('has_thunderstorm', False)
-    
-    # VERY HIGH
-    if rain_prob >= 90 or (has_storm and rain_prob >= 70):
-        return "🔴 *VERY HIGH* — Delay or postponement likely"
-    
-    # HIGH
-    elif rain_prob >= 80 or (has_storm and rain_prob >= 50):
-        return "🟠 *HIGH* — Delay probable at game time"
-    
-    # ELEVATED
-    elif has_storm or wind_speed >= IMPACT_RULES['high_risk']['wind_gust']:
-        return "🟡 *ELEVATED* — Conditions may impact play"
-    
-    elif temp <= IMPACT_RULES['high_risk']['temp_extreme'][0]:
-        return "🟡 *ELEVATED* — Extreme cold may impact play"
-    
-    else:
-        return "🟡 *ELEVATED* — Weather warrants monitoring"
-
-
-def build_trigger_reason(weather):
-    """Build 'why triggered' reason string."""
-    trigger_reasons = []
-    rain_prob = weather.get('rain_prob', 0)
-    temp = weather.get('temp', 70)
-    wind_speed = weather.get('wind_speed', 0)
-    has_storm = weather.get('has_thunderstorm', False)
-    
-    if rain_prob >= IMPACT_RULES['high_risk']['rain_prob']:
-        trigger_reasons.append(f"Rain {rain_prob:.0f}% ≥ {IMPACT_RULES['high_risk']['rain_prob']}% threshold")
-    if has_storm:
-        trigger_reasons.append(f"Active thunderstorms + Rain {rain_prob:.0f}%")
-    if wind_speed >= IMPACT_RULES['high_risk']['wind_gust']:
-        trigger_reasons.append(f"Wind {wind_speed} mph ≥ {IMPACT_RULES['high_risk']['wind_gust']} mph threshold")
-    if temp <= IMPACT_RULES['high_risk']['temp_extreme'][0]:
-        trigger_reasons.append(f"Temp {temp}°F ≤ {IMPACT_RULES['high_risk']['temp_extreme'][0]}°F threshold")
-    if temp >= IMPACT_RULES['high_risk']['temp_extreme'][1]:
-        trigger_reasons.append(f"Temp {temp}°F ≥ {IMPACT_RULES['high_risk']['temp_extreme'][1]}°F threshold")
-    
-    return ' | '.join(trigger_reasons) if trigger_reasons else 'No trigger'
-
-
-# ─────────────────────────────────────────────────────────────
-# MESSAGE BUILDERS
-# ─────────────────────────────────────────────────────────────
-def format_game_block(team_name, game_time, weather, impact):
-    """Format a single game weather block (MLS-style with soccer emoji)."""
-    weather_details = (
-        f"🌡️ *{weather['temp']:.0f}°F*\n"
-        f"☁️ {weather['conditions'].title()}\n"
-        f"💧 Rain: *{weather['rain_prob']:.0f}%*\n"
-        f"💨 Wind: {weather['wind_speed']:.0f} mph"
-    )
-
-    impact_details = f"{impact['card']} *{impact['status']}*"
-    if impact['level'] == 'HIGH_RISK':
-        trigger = build_trigger_reason(weather)
-        delay_prob = get_delay_probability(weather)
-        impact_details += (
-            f"\n📋 *Why:* {trigger}\n"
-            f"🎯 *Delay Probability:* {delay_prob}"
+def post_no_games_message():
+    """
+    Post 'No games scheduled today' message with next match date.
+    """
+    try:
+        next_game = get_next_scheduled_game()
+        
+        if next_game:
+            # Build message WITH next game info
+            message = {
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "✅ *No games scheduled today*\n\nMLS Weather Bot is monitoring and will alert on the next game day."
+                        }
+                    },
+                    {
+                        "type": "divider"
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"🗓️ *Next Match:* {next_game['date']} at {next_game['time']}\n\n🔷 {next_game['away_team']} @ {next_game['home_team']}"
+                        }
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
+                            }
+                        ]
+                    }
+                ]
+            }
+        else:
+            # Fallback: No next game found
+            message = {
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "✅ *No games scheduled today*\n\nMLS Weather Bot is monitoring and will alert on the next game day."
+                        }
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
+                            }
+                        ]
+                    }
+                ]
+            }
+        
+        # Post to Slack
+        response = requests.post(
+            SLACK_WEBHOOK_URL,
+            json=message,
+            timeout=10
         )
+        response.raise_for_status()
+        print("✅ No-games message posted successfully with next match info")
+        
+    except Exception as e:
+        print(f"❌ Error posting no-games message: {e}")
 
-    blocks = [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*⚽ {team_name}*\n{game_time}"
-            }
-        },
-        {
-            "type": "section",
-            "fields": [
-                {
-                    "type": "mrkdwn",
-                    "text": f"*Weather Forecast:*\n{weather_details}"
-                },
-                {
-                    "type": "mrkdwn",
-                    "text": f"*Game Impact:*\n{impact_details}"
-                }
-            ]
-        }
-    ]
-
-    if impact['level'] == 'HIGH_RISK':
-        blocks.insert(0, {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "⚠️ *WEATHER ALERT* - High risk of game impact"
-            }
-        })
-
-    return blocks
-
-
-def build_gameday_weather_message(games_weather):
-    """Build daily gameday weather report (7 AM post)."""
-    pacific_tz = pytz.timezone('America/Los_Angeles')
-    now = datetime.now(pacific_tz)
-
-    high_risk_count = sum(1 for g in games_weather if g['impact']['level'] == 'HIGH_RISK')
-    monitor_count = sum(1 for g in games_weather if g['impact']['level'] == 'MONITOR')
-
-    if high_risk_count > 0:
-        header_emoji = "⚠️"
-        summary = f"{high_risk_count} game(s) at HIGH RISK"
-    elif monitor_count > 0:
-        header_emoji = "🟡"
-        summary = f"{monitor_count} game(s) to MONITOR"
-    else:
-        header_emoji = "✅"
-        summary = "All games clear"
-
-    message = {
-        "text": f"⚽ MLS Daily Weather Report: {summary}",
-        "blocks": [
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": "⚽ MLS Daily Weather Report",
-                    "emoji": True
-                }
-            },
+def post_gameday_weather_report(games):
+    """
+    Post comprehensive gameday weather report with all games sorted by risk.
+    
+    Args:
+        games: List of MLS games from ESPN API
+    """
+    try:
+        # Import weather functions
+        from utils import get_weather_for_stadium, get_risk_level, get_delay_probability
+        
+        # Build game list with weather
+        game_data = []
+        
+        for game in games:
+            try:
+                comp = game['competitions'][0]
+                home_team = comp['home']['team']['displayName']
+                away_team = comp['away']['team']['displayName']
+                
+                # Get game time
+                game_date_utc = datetime.fromisoformat(game['date'].replace('Z', '+00:00'))
+                game_date_pt = game_date_utc.astimezone(PT)
+                game_time_pt = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
+                game_date_str = game_date_pt.strftime('%A, %B %d')
+                
+                # Find stadium
+                venue_name = comp.get('venue', {}).get('fullName', 'Unknown Stadium')
+                stadium_config = next((s for s in STADIUMS if s['stadium'] == venue_name), None)
+                
+                if not stadium_config:
+                    continue
+                
+                # Get weather
+                weather = get_weather_for_stadium(stadium_config)
+                
+                if not weather:
+                    continue
+                
+                # Determine risk level
+                risk_level, why_triggered = get_risk_level(weather, stadium_config)
+                delay_prob = get_delay_probability(risk_level, weather)
+                
+                game_data.append({
+                    'home': home_team,
+                    'away': away_team,
+                    'date': game_date_str,
+                    'time': game_time_pt,
+                    'weather': weather,
+                    'risk_level': risk_level,
+                    'why_triggered': why_triggered,
+                    'delay_prob': delay_prob,
+                    'team_name': stadium_config.get('team', 'Unknown')
+                })
+            
+            except Exception as e:
+                print(f"Error processing game: {e}")
+                continue
+        
+        if not game_data:
+            print("No games with valid weather data found")
+            post_no_games_message()
+            return
+        
+        # Sort by risk level (HIGH RISK first)
+        risk_order = {'HIGH RISK': 0, 'MONITOR': 1, 'CLEAR': 2}
+        game_data.sort(key=lambda x: risk_order.get(x['risk_level'], 3))
+        
+        # Build Slack message
+        blocks = [
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"{summary} | Next 24 Hours"
+                    "text": "⚽ *MLS Daily Weather Report*"
                 }
-            },
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": (
-                            f"Updated: {now.strftime('%b %d at %I:%M %p')} PT | "
-                            f"Source: 🌐 NWS (USA) + OpenWeatherMap (Canada) | "
-                            f"Next update: 7:00 AM PT tomorrow"
-                        )
-                    }
-                ]
             },
             {
                 "type": "divider"
             }
         ]
-    }
-
-    for game_data in games_weather:
-        game_blocks = format_game_block(
-            game_data['team_name'],
-            game_data['game_time'],
-            game_data['weather'],
-            game_data['impact']
-        )
-        message["blocks"].extend(game_blocks)
-        message["blocks"].append({"type": "divider"})
-
-    message["blocks"].extend([
-        {
+        
+        # Add each game
+        for game in game_data:
+            risk_icon = '🔴' if game['risk_level'] == 'HIGH RISK' else '🟡' if game['risk_level'] == 'MONITOR' else '🟢'
+            
+            weather = game['weather']
+            temp = weather.get('temperature', 'N/A')
+            rain = weather.get('rain_probability', 0)
+            wind = weather.get('wind_speed', 0)
+            conditions = weather.get('conditions', 'Unknown')
+            source = weather.get('source', 'NWS')
+            
+            game_text = f"{risk_icon} **{game['away']} @ {game['home']}**\n"
+            game_text += f"{game['date']} at {game['time']}\n\n"
+            game_text += f"🌡️ {temp}°F | 💧 Rain: {rain}% | 💨 Wind: {wind} mph | {conditions}\n"
+            
+            if game['risk_level'] == 'HIGH RISK':
+                game_text += f"📋 *Why:* {game['why_triggered']}\n"
+                game_text += f"🎯 *Delay Probability:* {game['delay_prob']}\n"
+            
+            game_text += f"_🌐 {source}_"
+            
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": game_text
+                }
+            })
+            
+            blocks.append({
+                "type": "divider"
+            })
+        
+        # Add footer
+        blocks.append({
             "type": "context",
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": (
-                        "🟩 *CLEAR* - No concerns  |  "
-                        "🟨 *MONITOR* - Prepare for possible issues  |  "
-                        "🟥 *HIGH RISK* - Significant weather threat"
-                    )
+                    "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
                 }
             ]
-        }
-    ])
-
-    return message
-
-
-def build_offday_message():
-    """Build off-day message (when no games scheduled)."""
-    pacific_tz = pytz.timezone('America/Los_Angeles')
-    now = datetime.now(pacific_tz)
-    
-    message = {
-        "text": "⚽ MLS Daily Weather Report - No Games Scheduled",
-        "blocks": [
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": "⚽ MLS Daily Weather Report",
-                    "emoji": True
-                }
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "✅ *No games scheduled today*\n\nMLS Weather Bot is monitoring and will alert on the next game day."
-                }
-            },
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": f"Updated: {now.strftime('%b %d at %I:%M %p')} PT"
-                    }
-                ]
-            }
-        ]
-    }
-    
-    return message
-
-
-def post_to_slack(webhook_url, message):
-    """Post message to Slack."""
-    if not webhook_url:
-        print("WARNING: Slack webhook not configured")
-        return False
-    
-    try:
+        })
+        
+        message = {"blocks": blocks}
+        
+        # Post to Slack
         response = requests.post(
-            webhook_url,
+            SLACK_WEBHOOK_URL,
             json=message,
-            headers={'Content-Type': 'application/json'},
             timeout=10
         )
-        if response.status_code != 200:
-            print(f"ERROR: Slack request failed: {response.status_code}")
-            return False
-        return True
-    except Exception as e:
-        print(f"ERROR posting to Slack: {e}")
-        return False
-
-
-# ─────────────────────────────────────────────────────────────
-# MAIN
-# ─────────────────────────────────────────────────────────────
-def main():
-    """Main weather bot coordinator."""
-    print("⚽ Starting MLS Weather Bot...")
-    
-    pacific_tz = pytz.timezone('America/Los_Angeles')
-    now = datetime.now(pacific_tz)
-    
-    # Check for games today
-    print("📅 Checking ESPN API for MLS games today...")
-    games = get_mls_games_today()
-    
-    if not games:
-        print("✅ No games scheduled today - posting off-day message once")
-        message = build_offday_message()
-        post_to_slack(SLACK_WEBHOOK_GAMEDAY, message)
-        return
-    
-    print(f"🎮 Found {len(games)} game(s) today - proceeding with weather check")
-    
-    # Load stadiums for weather lookup
-    stadiums = filter_roofed_stadiums(load_stadiums())
-    stadium_map = {s.get('team_name'): s for s in stadiums}
-    
-    games_weather = []
-    
-    for event in games:
-        try:
-            competitors = event.get('competitors', [])
-            if len(competitors) < 2:
-                continue
-            
-            home_team = competitors[0].get('team', {}).get('displayName', 'Unknown')
-            away_team = competitors[1].get('team', {}).get('displayName', 'Unknown')
-            game_time_str = event.get('date', '')
-            
-            # Try to find stadium by team
-            stadium = None
-            for comp in competitors:
-                team_name = comp.get('team', {}).get('displayName', '')
-                if team_name in stadium_map:
-                    stadium = stadium_map[team_name]
-                    break
-            
-            if not stadium:
-                print(f"⚠️  {away_team} vs {home_team}: Stadium not found in config")
-                continue
-            
-            # Fetch weather
-            weather = get_weather_for_stadium(stadium, OPENWEATHERMAP_API_KEY)
-            if not weather:
-                print(f"⚠️  {away_team} vs {home_team}: No weather data")
-                continue
-            
-            # Calculate impact
-            impact = calculate_game_impact(weather)
-            
-            games_weather.append({
-                'team_name': f"{away_team} @ {home_team}",
-                'game_time': game_time_str,
-                'weather': weather,
-                'impact': impact
-            })
-            
-            print(f"✅ {away_team} @ {home_team}: {impact['emoji']} {impact['status']}")
+        response.raise_for_status()
+        print("✅ Gameday weather report posted successfully")
         
-        except Exception as e:
-            print(f"ERROR processing game: {e}")
-            continue
-    
-    if not games_weather:
-        print("⚠️  No games with weather data - posting off-day message")
-        message = build_offday_message()
-        post_to_slack(SLACK_WEBHOOK_GAMEDAY, message)
-        return
-    
-    # Sort by risk level
-    risk_priority = {'HIGH_RISK': 0, 'MONITOR': 1, 'CLEAR': 2}
-    games_weather.sort(key=lambda x: risk_priority[x['impact']['level']])
-    
-    # Post daily weather report
-    message = build_gameday_weather_message(games_weather)
-    if post_to_slack(SLACK_WEBHOOK_GAMEDAY, message):
-        print(f"✅ Daily weather report posted for {len(games_weather)} game(s)")
-    else:
-        print("❌ Failed to post daily weather report")
-    
-    print("✅ MLS Weather Bot complete")
+    except Exception as e:
+        print(f"❌ Error posting gameday report: {e}")
 
+def main():
+    """
+    Main coordinator function.
+    
+    If games today: Post full gameday weather report
+    If no games today: Post off-day message with next match date
+    """
+    try:
+        # Check for games today
+        today_games = get_mls_games_for_date()
+        
+        if today_games:
+            print(f"✅ Found {len(today_games)} games today")
+            post_gameday_weather_report(today_games)
+        else:
+            print("✅ No games today - posting off-day message")
+            post_no_games_message()
+    
+    except Exception as e:
+        print(f"❌ Error in main: {e}")
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
