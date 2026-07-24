@@ -127,7 +127,15 @@ def post_no_games_message():
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": ":soccer: *MLS Daily Weather Report*\n\n✅ *No games scheduled today*\n\nMLS Weather Bot is monitoring and will alert on the next game day."
+                        "text": "⚽ *MLS Daily Weather Report*"
+                    }
+                },
+                {"type": "divider"},
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "✅ *No games scheduled today*\n\nMLS Weather Bot is monitoring and will alert on the next game day."
                     }
                 },
                 {"type": "divider"},
@@ -154,7 +162,15 @@ def post_no_games_message():
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": ":soccer: *MLS Daily Weather Report*\n\n✅ *No games scheduled today*\n\nMLS Weather Bot is monitoring and will alert on the next game day."
+                        "text": "⚽ *MLS Daily Weather Report*"
+                    }
+                },
+                {"type": "divider"},
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "✅ *No games scheduled today*\n\nMLS Weather Bot is monitoring and will alert on the next game day."
                     }
                 },
                 {
@@ -177,9 +193,9 @@ def post_no_games_message():
         print(f"Error posting: {e}")
 
 def post_gameday_weather_report(games):
-    """Post gameday report."""
+    """Post gameday report with weather and air quality."""
     try:
-        from utils import get_weather_for_stadium, get_risk_level, get_delay_probability
+        from utils import get_weather_for_stadium, get_risk_level, get_delay_probability, get_air_quality, get_aqi_category
         
         game_data = []
         
@@ -216,6 +232,23 @@ def post_gameday_weather_report(games):
                 if not weather:
                     continue
                 
+                # Get air quality
+                lat = stadium_config.get('latitude')
+                lon = stadium_config.get('longitude')
+                air_quality_data = get_air_quality(lat, lon)
+                
+                air_quality_info = {}
+                if air_quality_data:
+                    aqi_cat = get_aqi_category(air_quality_data['aqi'])
+                    air_quality_info = {
+                        'aqi': air_quality_data['aqi'],
+                        'category': aqi_cat['category'],
+                        'emoji': aqi_cat['emoji'],
+                        'pm25': air_quality_data['pm25'],
+                        'pm10': air_quality_data['pm10'],
+                        'level': aqi_cat['level']
+                    }
+                
                 risk_level, why_triggered = get_risk_level(weather, stadium_config)
                 delay_prob = get_delay_probability(risk_level, weather)
                 
@@ -225,6 +258,7 @@ def post_gameday_weather_report(games):
                     'date': game_date_str,
                     'time': game_time_pt,
                     'weather': weather,
+                    'air_quality': air_quality_info,
                     'risk_level': risk_level,
                     'why_triggered': why_triggered,
                     'delay_prob': delay_prob
@@ -246,15 +280,16 @@ def post_gameday_weather_report(games):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": ":soccer: *MLS Daily Weather Report*"
+                    "text": "⚽ *MLS Daily Weather Report*"
                 }
             },
             {"type": "divider"}
         ]
         
-        for game in game_data:
+        for idx, game in enumerate(game_data):
             risk_icon = '🔴' if game['risk_level'] == 'HIGH RISK' else '🟡' if game['risk_level'] == 'MONITOR' else '🟢'
             weather = game['weather']
+            air_quality = game['air_quality']
             temp = weather.get('temperature', 'N/A')
             rain = weather.get('rain_probability', 0)
             wind = weather.get('wind_speed', 0)
@@ -264,6 +299,14 @@ def post_gameday_weather_report(games):
             game_text = f"{risk_icon} **{game['away']} @ {game['home']}**\n"
             game_text += f"{game['date']} at {game['time']}\n\n"
             game_text += f"🌡️ {temp}°F | 💧 Rain: {rain}% | 💨 Wind: {wind} mph | {conditions}\n"
+            
+            # Add air quality if available
+            if air_quality:
+                aqi = air_quality.get('aqi', 0)
+                aqi_emoji = air_quality.get('emoji', '🟡')
+                aqi_category = air_quality.get('category', '')
+                pm25 = air_quality.get('pm25', 0)
+                game_text += f"{aqi_emoji} Air Quality: AQI {aqi} ({aqi_category}) | PM2.5: {pm25}µg/m³\n"
             
             if game['risk_level'] == 'HIGH RISK':
                 game_text += f"📋 *Why:* {game['why_triggered']}\n"
@@ -279,8 +322,10 @@ def post_gameday_weather_report(games):
                 }
             })
             
-            blocks.append({"type": "divider"})
+            if idx < len(game_data) - 1:
+                blocks.append({"type": "divider"})
         
+        blocks.append({"type": "divider"})
         blocks.append({
             "type": "context",
             "elements": [
