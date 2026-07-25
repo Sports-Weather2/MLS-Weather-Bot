@@ -1,276 +1,166 @@
 import os
 import requests
 import json
-from datetime import datetime, timedelta
-import pytz
+from datetime import datetime
+from src.utils import get_all_stadiums
 
-SLACK_WEBHOOK_URL_HIGH_RISK = os.getenv('SLACK_WEBHOOK_URL_HIGH_RISK')
-ESPN_MLS_SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard'
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 
-with open('config/mls_stadiums.json', 'r') as f:
-    STADIUMS = json.load(f)
-
-PT = pytz.timezone('America/Los_Angeles')
-
-def get_today_games():
-    """Fetch today's MLS games."""
+def get_game_schedule():
+    """Fetch today's MLS game schedule from ESPN API."""
     try:
-        today = datetime.now(PT).date()
-        date_str = today.strftime('%Y%m%d')
-        url = f"{ESPN_MLS_SCOREBOARD}?dates={date_str}"
-        
-        response = requests.get(url, timeout=10)
+        response = requests.get(
+            "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard",
+            timeout=10
+        )
         response.raise_for_status()
         data = response.json()
         
-        return data.get('events', [])
+        events = data.get("events", [])
+        games_today = []
+        
+        for event in events:
+            # Parse competitors array
+            competitors = event.get("competitors", [])
+            if len(competitors) >= 2:
+                home_team = None
+                away_team = None
+                
+                for competitor in competitors:
+                    if competitor.get("homeAway") == "home":
+                        home_team = competitor.get("team", {}).get("displayName", "Unknown")
+                    elif competitor.get("homeAway") == "away":
+                        away_team = competitor.get("team", {}).get("displayName", "Unknown")
+                
+                if home_team and away_team:
+                    games_today.append({
+                        "home": home_team,
+                        "away": away_team,
+                        "venue": event.get("venue", {}).get("fullName", "Unknown Venue")
+                    })
+        
+        return games_today
     except Exception as e:
-        print(f"Error fetching games: {e}")
+        print(f"Error fetching game schedule: {e}")
         return []
 
-def post_status_message(status, details=None):
-    """Post formatted status message."""
+
+def get_next_game_date():
+    """Get the next scheduled game date."""
     try:
-        now_pt = datetime.now(PT)
-        
-        if status == "active":
-            blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "⚽ *MLS Game Status Monitor*"
-                    }
-                },
-                {"type": "divider"},
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "✅ *System Status:* Active & Monitoring"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"🎮 *Games Today:* {details.get('game_count', 0)}"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"⏱️ *Monitoring Window:* 10 AM – 10 PM PT"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"📋 *Alert Trigger:* Delays, Postponements, Rescheduling"
-                    }
-                },
-                {"type": "divider"},
-                {
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "mrkdwn",
-                            "text": f"Updated: {now_pt.strftime('%b %d at %I:%M %p PT')}"
-                        }
-                    ]
-                }
-            ]
-        
-        elif status == "no_games":
-            next_check = (datetime.now(PT).date() + timedelta(days=1)).strftime('%A, %B %d, %Y')
-            blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "⚽ *MLS Game Status Monitor*"
-                    }
-                },
-                {"type": "divider"},
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "✅ *System Status:* Active & Monitoring"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "🟢 *Games Scheduled:* No games today"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"📅 *Next Check:* {next_check}"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "ℹ️ Real-time monitoring will resume during next scheduled games."
-                    }
-                },
-                {"type": "divider"},
-                {
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "mrkdwn",
-                            "text": f"Updated: {now_pt.strftime('%b %d at %I:%M %p PT')}"
-                        }
-                    ]
-                }
-            ]
-        
-        elif status == "delay":
-            blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "⚽ *MLS Game Status Alert*"
-                    }
-                },
-                {"type": "divider"},
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"🚨 *Status:* {details.get('status', 'Game Delayed')}"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"⚽ *Match:* {details.get('match', 'N/A')}"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"📍 *Stadium:* {details.get('stadium', 'N/A')}"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"💬 *Reason:* {details.get('reason', 'Weather conditions')}"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"⏰ *Time:* {details.get('time', 'TBD')}"
-                    }
-                },
-                {"type": "divider"},
-                {
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "mrkdwn",
-                            "text": f"Updated: {now_pt.strftime('%b %d at %I:%M %p PT')}"
-                        }
-                    ]
-                }
-            ]
-        
-        else:  # postponed
-            blocks = [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "⚽ *MLS Game Status Alert*"
-                    }
-                },
-                {"type": "divider"},
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "🚫 *Status:* POSTPONED"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"⚽ *Match:* {details.get('match', 'N/A')}"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"📍 *Stadium:* {details.get('stadium', 'N/A')}"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"💬 *Reason:* {details.get('reason', 'Severe weather / Air quality concerns')}"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"📅 *Reschedule:* {details.get('reschedule', 'TBD')}"
-                    }
-                },
-                {"type": "divider"},
-                {
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "mrkdwn",
-                            "text": f"Updated: {now_pt.strftime('%b %d at %I:%M %p PT')}"
-                        }
-                    ]
-                }
-            ]
-        
-        message = {"blocks": blocks}
-        response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=message, timeout=10)
+        response = requests.get(
+            "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard",
+            timeout=10
+        )
         response.raise_for_status()
-        print(f"✅ Status message posted: {status}")
+        data = response.json()
+        events = data.get("events", [])
+        
+        if events:
+            # Get the first upcoming event's date
+            next_event = events[0]
+            date_str = next_event.get("date", "")
+            if date_str:
+                # Parse date like "2026-07-25T19:30Z"
+                dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                return dt.strftime("%A %B %d")
+        
+        return "Unknown"
+    except Exception as e:
+        print(f"Error getting next game date: {e}")
+        return "Unknown"
+
+
+def send_status_monitor(games_count, next_check_date):
+    """Send Game Status Monitor to Slack."""
+    if not SLACK_WEBHOOK_URL:
+        print("Error: SLACK_WEBHOOK_URL not set")
+        return False
+    
+    try:
+        if games_count > 0:
+            status_text = f"Games Today: {games_count}"
+            monitoring_window = "10 AM – 10 PM PT"
+        else:
+            status_text = "No games today"
+            monitoring_window = f"Next Check: {next_check_date}"
+        
+        payload = {
+            "blocks": [
+                {
+                    "type": "header",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "⚽ MLS Game Status Monitor",
+                        "emoji": True
+                    }
+                },
+                {
+                    "type": "section",
+                    "fields": [
+                        {
+                            "type": "mrkdwn",
+                            "text": f"*Status:*\n✅ Active & Monitoring"
+                        },
+                        {
+                            "type": "mrkdwn",
+                            "text": f"*Games Today:*\n{games_count}"
+                        }
+                    ]
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Monitoring Window:*\n{monitoring_window}"
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Alert Triggers:*\nDelays, Postponements, Rescheduling"
+                    }
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": f"Updated: {datetime.now().strftime('%b %d at %I:%M %p %Z')}"
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        response = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=10)
+        response.raise_for_status()
+        print(f"✅ Game Status Monitor posted: {games_count} games today")
+        return True
     
     except Exception as e:
-        print(f"Error posting message: {e}")
+        print(f"❌ Error posting status monitor to Slack: {e}")
+        return False
+
 
 def main():
-    """Main monitoring function."""
-    try:
-        games = get_today_games()
-        
-        if not games:
-            print("No games today")
-            post_status_message("no_games")
-        else:
-            print(f"Found {len(games)} games today")
-            post_status_message("active", {"game_count": len(games)})
-            # TODO: Real-time monitoring logic for delays/postponements
+    """Main execution: post Game Status Monitor."""
+    print("🔍 Fetching MLS game schedule...")
     
-    except Exception as e:
-        print(f"Error: {e}")
+    games = get_game_schedule()
+    games_count = len(games)
+    
+    next_check_date = get_next_game_date()
+    
+    print(f"📊 Games today: {games_count}")
+    print(f"📅 Next check: {next_check_date}")
+    
+    send_status_monitor(games_count, next_check_date)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
