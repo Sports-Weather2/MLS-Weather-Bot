@@ -3,136 +3,71 @@ import requests
 import json
 from datetime import datetime
 from src.utils import (
-    get_nws_forecast,
-    get_openweathermap_forecast,
-    get_air_quality,
+    get_weather_for_stadium,
+    get_risk_level,
+    get_delay_probability,
     get_aqi_category,
-    get_stadium_coordinates,
-    get_all_stadiums,
+    get_air_quality,
 )
 
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL_HIGH_RISK")
 
-def check_high_risk_conditions(weather_data):
-    """
-    Check if weather conditions meet HIGH RISK threshold.
-    Returns (is_high_risk, reason)
-    """
-    if not weather_data:
-        return False, ""
-    
-    rain_prob = weather_data.get("rain_prob", 0)
-    wind_speed = weather_data.get("wind_speed", 0)
-    temp = weather_data.get("temp", 50)
-    has_thunderstorm = weather_data.get("thunderstorm", False)
-    aqi = weather_data.get("aqi", 0)
-    
-    reasons = []
-    
-    # HIGH RISK: Rain ≥80% + thunderstorms
-    if rain_prob >= 80 and has_thunderstorm:
-        reasons.append(f"🌧️ Heavy Rain ({rain_prob}%) + Thunderstorms")
-    
-    # HIGH RISK: Rain ≥90% standalone
-    if rain_prob >= 90:
-        reasons.append(f"🌧️ Extreme Rain ({rain_prob}%)")
-    
-    # HIGH RISK: Thunderstorms + wind ≥30 mph
-    if has_thunderstorm and wind_speed >= 30:
-        reasons.append(f"⚡ Thunderstorms + Strong Wind ({wind_speed} mph)")
-    
-    # HIGH RISK: Temp ≤35°F + wind ≥20 mph
-    if temp <= 35 and wind_speed >= 20:
-        reasons.append(f"🥶 Cold ({temp}°F) + Wind ({wind_speed} mph)")
-    
-    # HIGH RISK: Wind ≥40 mph
-    if wind_speed >= 40:
-        reasons.append(f"💨 Extreme Wind ({wind_speed} mph)")
-    
-    # HIGH RISK: AQI ≥150 (Unhealthy)
-    if aqi >= 150:
-        aqi_category = get_aqi_category(aqi)
-        reasons.append(f"💨 Air Quality: 🔴 AQI {aqi} ({aqi_category})")
-    
-    is_high_risk = len(reasons) > 0
-    return is_high_risk, " | ".join(reasons)
-
-
-def get_game_schedule():
-    """Fetch today's MLS game schedule from ESPN API."""
-    try:
-        response = requests.get(
-            "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard",
-            timeout=10
-        )
-        response.raise_for_status()
-        data = response.json()
-        
-        events = data.get("events", [])
-        games_today = []
-        
-        for event in events:
-            # Parse competitors array
-            competitors = event.get("competitors", [])
-            if len(competitors) >= 2:
-                home_team = None
-                away_team = None
-                
-                for competitor in competitors:
-                    if competitor.get("homeAway") == "home":
-                        home_team = competitor.get("team", {}).get("displayName", "Unknown")
-                    elif competitor.get("homeAway") == "away":
-                        away_team = competitor.get("team", {}).get("displayName", "Unknown")
-                
-                if home_team and away_team:
-                    games_today.append({
-                        "home": home_team,
-                        "away": away_team,
-                        "venue": event.get("venue", {}).get("fullName", "Unknown Venue")
-                    })
-        
-        return games_today
-    except Exception as e:
-        print(f"Error fetching game schedule: {e}")
-        return []
-
+# Load stadiums
+with open('config/mls_stadiums.json', 'r') as f:
+    STADIUMS = json.load(f)
 
 def check_all_stadiums_for_high_risk():
     """Check all MLS stadiums for HIGH RISK conditions."""
-    stadiums = get_all_stadiums()
     high_risk_alerts = []
     
-    for stadium in stadiums:
-        stadium_name = stadium.get("name")
-        lat = stadium.get("lat")
-        lon = stadium.get("lon")
-        api_source = stadium.get("api_source", "nws")
-        
+    for stadium in STADIUMS:
         try:
             # Get weather data
-            if api_source == "openweathermap":
-                weather_data = get_openweathermap_forecast(lat, lon)
-            else:  # nws
-                weather_data = get_nws_forecast(lat, lon)
+            weather_data = get_weather_for_stadium(stadium)
+            
+            if not weather_data:
+                print(f"⚠️ No weather data for {stadium.get('stadium')}")
+                continue
             
             # Get air quality
-            aqi = get_air_quality(lat, lon)
-            if weather_data:
-                weather_data["aqi"] = aqi
+            lat = stadium.get("latitude")
+            lon = stadium.get("longitude")
+            aqi_data = get_air_quality(lat, lon)
             
-            # Check for high risk
-            is_high_risk, reason = check_high_risk_conditions(weather_data)
+            if aqi_data:
+                weather_data["aqi"] = aqi_data.get("aqi", 0)
+                weather_data["pm25"] = aqi_data.get("pm25", 0)
             
-            if is_high_risk:
+            # Check risk level
+            risk_level, why_triggered = get_risk_level(weather_data, stadium)
+            
+            # Check AQI for HIGH RISK (AQI >= 150)
+            aqi = weather_data.get("aqi", 0)
+            if aqi >= 150:
+                aqi_category = get_aqi_category(aqi)
+                aqi_text = f"💨 Air Quality: 🔴 AQI {aqi} ({aqi_category.get('category', 'Unhealthy')})"
+                if aqi >= 150 and risk_level != "HIGH RISK":
+                    risk_level = "HIGH RISK"
+                    why_triggered = aqi_text
+                elif aqi >= 150:
+                    why_triggered += f" | {aqi_text}"
+            
+            # Only collect HIGH RISK alerts
+            if risk_level == "HIGH RISK":
+                delay_prob = get_delay_probability(risk_level, weather_data)
+                
                 high_risk_alerts.append({
-                    "stadium": stadium_name,
-                    "reason": reason,
-                    "lat": lat,
-                    "lon": lon
+                    "stadium": stadium.get("stadium"),
+                    "team": stadium.get("teams", ["Unknown"])[0],
+                    "why_triggered": why_triggered,
+                    "delay_probability": delay_prob,
+                    "weather": weather_data
                 })
+                
+                print(f"🚨 HIGH RISK found: {stadium.get('stadium')} - {why_triggered}")
         
         except Exception as e:
-            print(f"Error checking {stadium_name}: {e}")
+            print(f"❌ Error checking {stadium.get('stadium')}: {e}")
             continue
     
     return high_risk_alerts
@@ -164,9 +99,23 @@ def send_slack_alert(alert):
                         },
                         {
                             "type": "mrkdwn",
-                            "text": f"*Why Triggered:*\n{alert['reason']}"
+                            "text": f"*Team:*\n{alert['team']}"
                         }
                     ]
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Why Triggered:*\n{alert['why_triggered']}"
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Delay Probability:*\n{alert['delay_probability']}"
+                    }
                 },
                 {
                     "type": "divider"
