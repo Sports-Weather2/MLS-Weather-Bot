@@ -375,6 +375,6 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-# Always run main when imported as a module
-main()
+else:
+    # Run when imported as module
+    main()
