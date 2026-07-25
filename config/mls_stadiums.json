@@ -1,334 +1,215 @@
-{
-  "teams": [
-    {
-      "team_id": "ATL",
-      "team_name": "Atlanta United",
-      "city": "Atlanta",
-      "stadium": "Mercedes-Benz Stadium",
-      "latitude": 33.7549,
-      "longitude": -84.4008,
-      "timezone": "US/Eastern",
-      "roofed": true,
-      "country": "USA"
-    },
-    {
-      "team_id": "HOU",
-      "team_name": "Houston Dynamo",
-      "city": "Houston",
-      "stadium": "Shell Energy Stadium",
-      "latitude": 29.7575,
-      "longitude": -95.3614,
-      "timezone": "US/Central",
-      "roofed": true,
-      "country": "USA"
-    },
-    {
-      "team_id": "VAN",
-      "team_name": "Vancouver Whitecaps",
-      "city": "Vancouver",
-      "stadium": "BC Place",
-      "latitude": 49.2766,
-      "longitude": -123.1112,
-      "timezone": "US/Pacific",
-      "roofed": true,
-      "country": "Canada"
-    },
-    {
-      "team_id": "TOR",
-      "team_name": "Toronto FC",
-      "city": "Toronto",
-      "stadium": "BMO Field",
-      "latitude": 43.6629,
-      "longitude": -79.3957,
-      "timezone": "US/Eastern",
-      "roofed": false,
-      "country": "Canada"
-    },
-    {
-      "team_id": "LAFC",
-      "team_name": "LAFC",
-      "city": "Los Angeles",
-      "stadium": "BMO Stadium",
-      "latitude": 34.0145,
-      "longitude": -118.2439,
-      "timezone": "US/Pacific",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "LAG",
-      "team_name": "LA Galaxy",
-      "city": "Los Angeles",
-      "stadium": "Dignity Health Sports Park",
-      "latitude": 34.0126,
-      "longitude": -118.2517,
-      "timezone": "US/Pacific",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "SEA",
-      "team_name": "Seattle Sounders",
-      "city": "Seattle",
-      "stadium": "Lumen Field",
-      "latitude": 47.5951,
-      "longitude": -122.3316,
-      "timezone": "US/Pacific",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "POR",
-      "team_name": "Portland Timbers",
-      "city": "Portland",
-      "stadium": "Providence Park",
-      "latitude": 45.5152,
-      "longitude": -122.7104,
-      "timezone": "US/Pacific",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "SJ",
-      "team_name": "San Jose Earthquakes",
-      "city": "San Jose",
-      "stadium": "PayPal Park",
-      "latitude": 37.3382,
-      "longitude": -121.9626,
-      "timezone": "US/Pacific",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "RSL",
-      "team_name": "Real Salt Lake",
-      "city": "Salt Lake City",
-      "stadium": "America First Field",
-      "latitude": 40.7683,
-      "longitude": -111.8910,
-      "timezone": "US/Mountain",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "COL",
-      "team_name": "Colorado Rapids",
-      "city": "Commerce City",
-      "stadium": "Dick's Sporting Goods Park",
-      "latitude": 39.7437,
-      "longitude": -104.8862,
-      "timezone": "US/Mountain",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "DAL",
-      "team_name": "FC Dallas",
-      "city": "Frisco",
-      "stadium": "Toyota Stadium",
-      "latitude": 33.0744,
-      "longitude": -96.8364,
-      "timezone": "US/Central",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "SKC",
-      "team_name": "Sporting Kansas City",
-      "city": "Kansas City",
-      "stadium": "Children's Mercy Park",
-      "latitude": 39.0485,
-      "longitude": -94.4781,
-      "timezone": "US/Central",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "MIN",
-      "team_name": "Minnesota United",
-      "city": "Minneapolis",
-      "stadium": "Allianz Field",
-      "latitude": 44.9537,
-      "longitude": -93.2167,
-      "timezone": "US/Central",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "CHI",
-      "team_name": "Chicago Fire FC",
-      "city": "Chicago",
-      "stadium": "Soldier Field",
-      "latitude": 41.8319,
-      "longitude": -87.6167,
-      "timezone": "US/Central",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "COLUMBUS",
-      "team_name": "Columbus Crew",
-      "city": "Columbus",
-      "stadium": "Lower.com Field",
-      "latitude": 39.9612,
-      "longitude": -82.9988,
-      "timezone": "US/Eastern",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "NYC",
-      "team_name": "New York City FC",
-      "city": "New York",
-      "stadium": "Yankee Stadium",
-      "latitude": 40.8296,
-      "longitude": -73.9262,
-      "timezone": "US/Eastern",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "NYRB",
-      "team_name": "New York Red Bulls",
-      "city": "Harrison",
-      "stadium": "Red Bull Arena",
-      "latitude": 40.7352,
-      "longitude": -74.0771,
-      "timezone": "US/Eastern",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "PHI",
-      "team_name": "Philadelphia Union",
-      "city": "Chester",
-      "stadium": "Subaru Park",
-      "latitude": 39.8581,
-      "longitude": -75.3536,
-      "timezone": "US/Eastern",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "DCU",
-      "team_name": "D.C. United",
-      "city": "Washington",
-      "stadium": "Audi Field",
-      "latitude": 38.8057,
-      "longitude": -77.0209,
-      "timezone": "US/Eastern",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "NE",
-      "team_name": "New England Revolution",
-      "city": "Foxborough",
-      "stadium": "Gillette Stadium",
-      "latitude": 42.0909,
-      "longitude": -71.2643,
-      "timezone": "US/Eastern",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "ORL",
-      "team_name": "Orlando City SC",
-      "city": "Orlando",
-      "stadium": "Exploria Stadium",
-      "latitude": 28.5421,
-      "longitude": -81.3877,
-      "timezone": "US/Eastern",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "MIA",
-      "team_name": "Inter Miami CF",
-      "city": "Fort Lauderdale",
-      "stadium": "Hard Rock Stadium",
-      "latitude": 26.1582,
-      "longitude": -80.2510,
-      "timezone": "US/Eastern",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "MTL",
-      "team_name": "CF Montréal",
-      "city": "Montreal",
-      "stadium": "Saputo Stadium",
-      "latitude": 45.4973,
-      "longitude": -73.5519,
-      "timezone": "US/Eastern",
-      "roofed": false,
-      "country": "Canada"
-    },
-    {
-      "team_id": "STL",
-      "team_name": "St. Louis City SC",
-      "city": "St. Louis",
-      "stadium": "CityPark",
-      "latitude": 38.6270,
-      "longitude": -90.1994,
-      "timezone": "US/Central",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "NSH",
-      "team_name": "Nashville SC",
-      "city": "Nashville",
-      "stadium": "GEODIS Park",
-      "latitude": 36.1427,
-      "longitude": -86.7816,
-      "timezone": "US/Central",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "AUS",
-      "team_name": "Austin FC",
-      "city": "Austin",
-      "stadium": "Q2 Stadium",
-      "latitude": 30.3852,
-      "longitude": -97.7227,
-      "timezone": "US/Central",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "SD",
-      "team_name": "San Diego FC",
-      "city": "San Diego",
-      "stadium": "Snapdragon Stadium",
-      "latitude": 32.7157,
-      "longitude": -117.1611,
-      "timezone": "US/Pacific",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "CIN",
-      "team_name": "FC Cincinnati",
-      "city": "Cincinnati",
-      "stadium": "TQL Stadium",
-      "latitude": 39.0618,
-      "longitude": -84.5099,
-      "timezone": "US/Eastern",
-      "roofed": false,
-      "country": "USA"
-    },
-    {
-      "team_id": "CLT",
-      "team_name": "Charlotte FC",
-      "city": "Charlotte",
-      "stadium": "Bank of America Stadium",
-      "latitude": 35.2254,
-      "longitude": -80.8433,
-      "timezone": "US/Eastern",
-      "roofed": false,
-      "country": "USA"
-    }
-  ]
-}
+[
+  {
+    "stadium": "Mercedes-Benz Stadium",
+    "latitude": 33.7549,
+    "longitude": -84.4008,
+    "country": "USA",
+    "teams": ["Atlanta United"],
+    "roof": true
+  },
+  {
+    "stadium": "Shell Energy Stadium",
+    "latitude": 29.7575,
+    "longitude": -95.3614,
+    "country": "USA",
+    "teams": ["Houston Dynamo"],
+    "roof": true
+  },
+  {
+    "stadium": "BC Place",
+    "latitude": 49.2766,
+    "longitude": -123.1112,
+    "country": "Canada",
+    "teams": ["Vancouver Whitecaps"],
+    "roof": true
+  },
+  {
+    "stadium": "BMO Field",
+    "latitude": 43.6629,
+    "longitude": -79.3957,
+    "country": "Canada",
+    "teams": ["Toronto FC"]
+  },
+  {
+    "stadium": "BMO Stadium",
+    "latitude": 34.0145,
+    "longitude": -118.2439,
+    "country": "USA",
+    "teams": ["LAFC"]
+  },
+  {
+    "stadium": "Dignity Health Sports Park",
+    "latitude": 34.0126,
+    "longitude": -118.2517,
+    "country": "USA",
+    "teams": ["LA Galaxy"]
+  },
+  {
+    "stadium": "Lumen Field",
+    "latitude": 47.5951,
+    "longitude": -122.3316,
+    "country": "USA",
+    "teams": ["Seattle Sounders"]
+  },
+  {
+    "stadium": "Providence Park",
+    "latitude": 45.5152,
+    "longitude": -122.7104,
+    "country": "USA",
+    "teams": ["Portland Timbers"]
+  },
+  {
+    "stadium": "PayPal Park",
+    "latitude": 37.3382,
+    "longitude": -121.9626,
+    "country": "USA",
+    "teams": ["San Jose Earthquakes"]
+  },
+  {
+    "stadium": "America First Field",
+    "latitude": 40.7683,
+    "longitude": -111.8910,
+    "country": "USA",
+    "teams": ["Real Salt Lake"]
+  },
+  {
+    "stadium": "Dick's Sporting Goods Park",
+    "latitude": 39.7437,
+    "longitude": -104.8862,
+    "country": "USA",
+    "teams": ["Colorado Rapids"]
+  },
+  {
+    "stadium": "Toyota Stadium",
+    "latitude": 33.0744,
+    "longitude": -96.8364,
+    "country": "USA",
+    "teams": ["FC Dallas"]
+  },
+  {
+    "stadium": "Children's Mercy Park",
+    "latitude": 39.0485,
+    "longitude": -94.4781,
+    "country": "USA",
+    "teams": ["Sporting Kansas City"]
+  },
+  {
+    "stadium": "Allianz Field",
+    "latitude": 44.9537,
+    "longitude": -93.2167,
+    "country": "USA",
+    "teams": ["Minnesota United"]
+  },
+  {
+    "stadium": "Soldier Field",
+    "latitude": 41.8319,
+    "longitude": -87.6167,
+    "country": "USA",
+    "teams": ["Chicago Fire FC"]
+  },
+  {
+    "stadium": "Lower.com Field",
+    "latitude": 39.9612,
+    "longitude": -82.9988,
+    "country": "USA",
+    "teams": ["Columbus Crew"]
+  },
+  {
+    "stadium": "Yankee Stadium",
+    "latitude": 40.8296,
+    "longitude": -73.9262,
+    "country": "USA",
+    "teams": ["New York City FC"]
+  },
+  {
+    "stadium": "Red Bull Arena",
+    "latitude": 40.7352,
+    "longitude": -74.0771,
+    "country": "USA",
+    "teams": ["New York Red Bulls"]
+  },
+  {
+    "stadium": "Subaru Park",
+    "latitude": 39.8581,
+    "longitude": -75.3536,
+    "country": "USA",
+    "teams": ["Philadelphia Union"]
+  },
+  {
+    "stadium": "Audi Field",
+    "latitude": 38.8057,
+    "longitude": -77.0209,
+    "country": "USA",
+    "teams": ["D.C. United"]
+  },
+  {
+    "stadium": "Gillette Stadium",
+    "latitude": 42.0909,
+    "longitude": -71.2643,
+    "country": "USA",
+    "teams": ["New England Revolution"]
+  },
+  {
+    "stadium": "Exploria Stadium",
+    "latitude": 28.5421,
+    "longitude": -81.3877,
+    "country": "USA",
+    "teams": ["Orlando City SC"]
+  },
+  {
+    "stadium": "Hard Rock Stadium",
+    "latitude": 26.1582,
+    "longitude": -80.2510,
+    "country": "USA",
+    "teams": ["Inter Miami CF"]
+  },
+  {
+    "stadium": "Saputo Stadium",
+    "latitude": 45.4973,
+    "longitude": -73.5519,
+    "country": "Canada",
+    "teams": ["CF Montréal"]
+  },
+  {
+    "stadium": "CityPark",
+    "latitude": 38.6270,
+    "longitude": -90.1994,
+    "country": "USA",
+    "teams": ["St. Louis City SC"]
+  },
+  {
+    "stadium": "GEODIS Park",
+    "latitude": 36.1427,
+    "longitude": -86.7816,
+    "country": "USA",
+    "teams": ["Nashville SC"]
+  },
+  {
+    "stadium": "Q2 Stadium",
+    "latitude": 30.3852,
+    "longitude": -97.7227,
+    "country": "USA",
+    "teams": ["Austin FC"]
+  },
+  {
+    "stadium": "Snapdragon Stadium",
+    "latitude": 32.7157,
+    "longitude": -117.1611,
+    "country": "USA",
+    "teams": ["San Diego FC"]
+  },
+  {
+    "stadium": "TQL Stadium",
+    "latitude": 39.0618,
+    "longitude": -84.5099,
+    "country": "USA",
+    "teams": ["FC Cincinnati"]
+  },
+  {
+    "stadium": "Bank of America Stadium",
+    "latitude": 35.2254,
+    "longitude": -80.8433,
+    "country": "USA",
+    "teams": ["Charlotte FC"]
+  }
+]
