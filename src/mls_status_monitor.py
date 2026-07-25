@@ -2,7 +2,6 @@ import os
 import requests
 import json
 from datetime import datetime
-from src.utils import get_all_stadiums
 
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 
