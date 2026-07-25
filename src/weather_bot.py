@@ -155,7 +155,7 @@ def post_no_games_message():
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"🗓️ *Next Match:* {next_game['date']} at {next_game['time']}\n\n⚽ {next_game['away_team']} @ {next_game['home_team']}"
+                        "text": f"🗓️ *Next Match:* {next_game['date']} at {next_game['time']}\n⚽ {next_game['away_team']} @ {next_game['home_team']}"
                     }
                 },
                 {
@@ -208,7 +208,7 @@ def post_no_games_message():
         traceback.print_exc()
 
 def post_gameday_weather_report(games):
-    """Post gameday report with weather and air quality."""
+    """Post gameday report with weather and air quality - IMPROVED FORMATTING."""
     try:
         print(f"Line 13: Processing {len(games)} games")
         game_data = []
@@ -353,11 +353,13 @@ def post_gameday_weather_report(games):
             conditions = weather.get('conditions', 'Unknown')
             source = weather.get('source', 'NWS')
             
+            # IMPROVED FORMATTING
             game_text = f"{risk_icon} *{game['away']} @ {game['home']}*\n"
-            game_text += f"{game['date']} at {game['time']}\n\n"
-            game_text += f"🌡️ {temp}°F | 💧 Rain: {rain}% | 💨 Wind: {wind} mph | {conditions}\n"
+            game_text += f"📅 {game['date']} at {game['time']}\n"
+            game_text += f"\n"  # Blank line for readability
+            game_text += f"🌡️ {temp}°F  |  💧 Rain: {rain}%  |  💨 Wind: {wind} mph  |  {conditions}\n"
             
-            # Add air quality if available
+            # Add air quality on separate line
             if air_quality:
                 aqi = air_quality.get('aqi', 0)
                 aqi_emoji = air_quality.get('emoji', '🟡')
@@ -365,11 +367,13 @@ def post_gameday_weather_report(games):
                 pm25 = air_quality.get('pm25', 0)
                 game_text += f"{aqi_emoji} Air Quality: AQI {aqi} ({aqi_category}) | PM2.5: {pm25}µg/m³\n"
             
+            # Add why triggered and delay probability if HIGH RISK
             if game['risk_level'] == 'HIGH RISK':
+                game_text += f"\n"  # Blank line for readability
                 game_text += f"📋 *Why:* {game['why_triggered']}\n"
                 game_text += f"🎯 *Delay Probability:* {game['delay_prob']}\n"
             
-            game_text += f"_🌐 {source}_"
+            game_text += f"\n_🌐 {source}_"
             
             blocks.append({
                 "type": "section",
@@ -379,6 +383,7 @@ def post_gameday_weather_report(games):
                 }
             })
             
+            # Add divider between games (but not after last game)
             if idx < len(game_data) - 1:
                 blocks.append({"type": "divider"})
         
