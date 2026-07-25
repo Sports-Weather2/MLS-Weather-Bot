@@ -1,312 +1,211 @@
 import os
 import requests
 import json
-from datetime import datetime, timedelta
-import pytz
+from datetime import datetime
+from src.utils import (
+    get_nws_forecast,
+    get_openweathermap_forecast,
+    get_air_quality,
+    get_aqi_category,
+    get_stadium_coordinates,
+    get_all_stadiums,
+)
 
-SLACK_WEBHOOK_URL_HIGH_RISK = os.getenv('SLACK_WEBHOOK_URL_HIGH_RISK')
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL_HIGH_RISK")
 
-with open('config/mls_stadiums.json', 'r') as f:
-    STADIUMS = json.load(f)
+def check_high_risk_conditions(weather_data):
+    """
+    Check if weather conditions meet HIGH RISK threshold.
+    Returns (is_high_risk, reason)
+    """
+    if not weather_data:
+        return False, ""
+    
+    rain_prob = weather_data.get("rain_prob", 0)
+    wind_speed = weather_data.get("wind_speed", 0)
+    temp = weather_data.get("temp", 50)
+    has_thunderstorm = weather_data.get("thunderstorm", False)
+    aqi = weather_data.get("aqi", 0)
+    
+    reasons = []
+    
+    # HIGH RISK: Rain ≥80% + thunderstorms
+    if rain_prob >= 80 and has_thunderstorm:
+        reasons.append(f"🌧️ Heavy Rain ({rain_prob}%) + Thunderstorms")
+    
+    # HIGH RISK: Rain ≥90% standalone
+    if rain_prob >= 90:
+        reasons.append(f"🌧️ Extreme Rain ({rain_prob}%)")
+    
+    # HIGH RISK: Thunderstorms + wind ≥30 mph
+    if has_thunderstorm and wind_speed >= 30:
+        reasons.append(f"⚡ Thunderstorms + Strong Wind ({wind_speed} mph)")
+    
+    # HIGH RISK: Temp ≤35°F + wind ≥20 mph
+    if temp <= 35 and wind_speed >= 20:
+        reasons.append(f"🥶 Cold ({temp}°F) + Wind ({wind_speed} mph)")
+    
+    # HIGH RISK: Wind ≥40 mph
+    if wind_speed >= 40:
+        reasons.append(f"💨 Extreme Wind ({wind_speed} mph)")
+    
+    # HIGH RISK: AQI ≥150 (Unhealthy)
+    if aqi >= 150:
+        aqi_category = get_aqi_category(aqi)
+        reasons.append(f"💨 Air Quality: 🔴 AQI {aqi} ({aqi_category})")
+    
+    is_high_risk = len(reasons) > 0
+    return is_high_risk, " | ".join(reasons)
 
-PT = pytz.timezone('America/Los_Angeles')
 
-def get_mls_games_for_date(target_date=None):
-    """Fetch MLS games for a specific date."""
+def get_game_schedule():
+    """Fetch today's MLS game schedule from ESPN API."""
     try:
-        if target_date is None:
-            target_date = datetime.now(PT).date()
-        
-        date_str = target_date.strftime('%Y%m%d')
-        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard?dates={date_str}"
-        
-        response = requests.get(url, timeout=10)
+        response = requests.get(
+            "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard",
+            timeout=10
+        )
         response.raise_for_status()
         data = response.json()
         
-        games = data.get('events', [])
-        print(f"Found {len(games)} games on {date_str}")
-        return games
-    
+        events = data.get("events", [])
+        games_today = []
+        
+        for event in events:
+            # Parse competitors array
+            competitors = event.get("competitors", [])
+            if len(competitors) >= 2:
+                home_team = None
+                away_team = None
+                
+                for competitor in competitors:
+                    if competitor.get("homeAway") == "home":
+                        home_team = competitor.get("team", {}).get("displayName", "Unknown")
+                    elif competitor.get("homeAway") == "away":
+                        away_team = competitor.get("team", {}).get("displayName", "Unknown")
+                
+                if home_team and away_team:
+                    games_today.append({
+                        "home": home_team,
+                        "away": away_team,
+                        "venue": event.get("venue", {}).get("fullName", "Unknown Venue")
+                    })
+        
+        return games_today
     except Exception as e:
-        print(f"Error fetching games: {e}")
+        print(f"Error fetching game schedule: {e}")
         return []
 
-def post_high_risk_alert(high_risk_games, all_clear=False):
-    """Post high-risk weather alerts to Slack."""
+
+def check_all_stadiums_for_high_risk():
+    """Check all MLS stadiums for HIGH RISK conditions."""
+    stadiums = get_all_stadiums()
+    high_risk_alerts = []
+    
+    for stadium in stadiums:
+        stadium_name = stadium.get("name")
+        lat = stadium.get("lat")
+        lon = stadium.get("lon")
+        api_source = stadium.get("api_source", "nws")
+        
+        try:
+            # Get weather data
+            if api_source == "openweathermap":
+                weather_data = get_openweathermap_forecast(lat, lon)
+            else:  # nws
+                weather_data = get_nws_forecast(lat, lon)
+            
+            # Get air quality
+            aqi = get_air_quality(lat, lon)
+            if weather_data:
+                weather_data["aqi"] = aqi
+            
+            # Check for high risk
+            is_high_risk, reason = check_high_risk_conditions(weather_data)
+            
+            if is_high_risk:
+                high_risk_alerts.append({
+                    "stadium": stadium_name,
+                    "reason": reason,
+                    "lat": lat,
+                    "lon": lon
+                })
+        
+        except Exception as e:
+            print(f"Error checking {stadium_name}: {e}")
+            continue
+    
+    return high_risk_alerts
+
+
+def send_slack_alert(alert):
+    """Send HIGH RISK alert to Slack."""
+    if not SLACK_WEBHOOK_URL:
+        print("Error: SLACK_WEBHOOK_URL_HIGH_RISK not set")
+        return False
+    
     try:
-        from src.utils import get_weather_for_stadium, get_air_quality, get_aqi_category
-        
-        now_pt = datetime.now(PT)
-        
-        if all_clear:
-            # Post "All Clear - No Games" message
-            next_check = (datetime.now(PT).date() + timedelta(days=1)).strftime('%A, %B %d, %Y')
-            blocks = [
+        payload = {
+            "blocks": [
                 {
-                    "type": "section",
+                    "type": "header",
                     "text": {
-                        "type": "mrkdwn",
-                        "text": "⚽ *MLS High-Risk Weather Alert*"
-                    }
-                },
-                {"type": "divider"},
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "✅ *System Status:* Active & Monitoring"
+                        "type": "plain_text",
+                        "text": "⚠️ MLS HIGH RISK Weather Alert",
+                        "emoji": True
                     }
                 },
                 {
                     "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "🟢 *Games Scheduled:* No games today"
-                    }
+                    "fields": [
+                        {
+                            "type": "mrkdwn",
+                            "text": f"*Stadium:*\n{alert['stadium']}"
+                        },
+                        {
+                            "type": "mrkdwn",
+                            "text": f"*Why Triggered:*\n{alert['reason']}"
+                        }
+                    ]
                 },
                 {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"📅 *Next Check:* {next_check}"
-                    }
+                    "type": "divider"
                 },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "ℹ️ Real-time monitoring will resume during next scheduled games."
-                    }
-                },
-                {"type": "divider"},
                 {
                     "type": "context",
                     "elements": [
                         {
                             "type": "mrkdwn",
-                            "text": f"Updated: {now_pt.strftime('%b %d at %I:%M %p PT')}"
+                            "text": f"Updated: {datetime.now().strftime('%b %d at %I:%M %p %Z')}"
                         }
                     ]
                 }
             ]
-            
-            message = {"blocks": blocks}
-            response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=message, timeout=10)
-            response.raise_for_status()
-            print("✅ All Clear message posted")
-            return
+        }
         
-        if not high_risk_games:
-            print("No high-risk games to post")
-            return
-        
-        # Build blocks for each high-risk game
-        blocks = [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "⚽ *MLS High-Risk Weather Alert*"
-                }
-            },
-            {"type": "divider"}
-        ]
-        
-        for idx, game in enumerate(high_risk_games):
-            try:
-                away_team = game.get('away_team', 'Unknown')
-                home_team = game.get('home_team', 'Unknown')
-                date_str = game.get('date', 'N/A')
-                time_str = game.get('time', 'N/A')
-                weather = game.get('weather', {})
-                air_quality = game.get('air_quality', {})
-                risk_level = game.get('risk_level', 'UNKNOWN')
-                why_triggered = game.get('why_triggered', 'Unknown condition')
-                delay_prob = game.get('delay_prob', 'Unknown')
-                
-                # Build weather string
-                temp = weather.get('temperature', 'N/A')
-                rain = weather.get('rain_probability', 0)
-                wind = weather.get('wind_speed', 0)
-                conditions = weather.get('conditions', 'Unknown')
-                
-                weather_str = f"🌡️ {temp}°F | 💧 Rain: {rain}% | 💨 Wind: {wind} mph | {conditions}"
-                
-                # Add air quality if available
-                aqi = air_quality.get('aqi', 0)
-                aqi_category = air_quality.get('category', '')
-                pm25 = air_quality.get('pm25', 0)
-                
-                if aqi > 0:
-                    aqi_emoji = air_quality.get('emoji', '🟡')
-                    weather_str += f"\n💨 Air Quality: {aqi_emoji} AQI {aqi} ({aqi_category}) | PM2.5: {pm25}µg/m³"
-                
-                # Build game block
-                game_text = f"🔴 *{away_team} @ {home_team}*\n"
-                game_text += f"{date_str} at {time_str}\n\n"
-                game_text += f"{weather_str}\n\n"
-                game_text += f"📋 *Why Triggered:* {why_triggered}\n"
-                game_text += f"🎯 *Delay Probability:* {delay_prob}"
-                
-                blocks.append({
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": game_text
-                    }
-                })
-                
-                if idx < len(high_risk_games) - 1:
-                    blocks.append({"type": "divider"})
-            
-            except Exception as e:
-                print(f"Error processing game: {e}")
-                continue
-        
-        # Add timestamp
-        blocks.append({"type": "divider"})
-        blocks.append({
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": f"Updated: {now_pt.strftime('%b %d at %I:%M %p PT')}"
-                }
-            ]
-        })
-        
-        message = {"blocks": blocks}
-        response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=message, timeout=10)
+        response = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=10)
         response.raise_for_status()
-        print(f"✅ Posted {len(high_risk_games)} high-risk game(s)")
+        print(f"✅ HIGH RISK alert posted for {alert['stadium']}")
+        return True
     
     except Exception as e:
-        print(f"Error posting alert: {e}")
+        print(f"❌ Error posting alert to Slack: {e}")
+        return False
 
-def check_high_risk_games():
-    """Check today's games for high-risk weather and air quality."""
-    try:
-        from src.utils import get_weather_for_stadium, get_risk_level, get_delay_probability, get_air_quality, get_aqi_category
-        
-        print("🔍 Starting MLS high-risk weather alert check...")
-        
-        games = get_mls_games_for_date()
-        
-        if not games:
-            print("❌ No games scheduled today - skipping alert")
-            post_high_risk_alert([], all_clear=True)
-            return
-        
-        high_risk_games = []
-        
-        for game in games:
-            try:
-                # Parse game info
-                comp = game['competitions'][0]
-                
-                # Extract home/away from competitors array
-                competitors = comp.get('competitors', [])
-                home_competitor = next((c for c in competitors if c.get('homeAway') == 'home'), None)
-                away_competitor = next((c for c in competitors if c.get('homeAway') == 'away'), None)
-                
-                if not home_competitor or not away_competitor:
-                    continue
-                
-                home_team = home_competitor.get('team', {}).get('displayName', '')
-                away_team = away_competitor.get('team', {}).get('displayName', '')
-                
-                if not home_team or not away_team:
-                    continue
-                
-                # Get game time
-                game_date_utc = datetime.fromisoformat(game['date'].replace('Z', '+00:00'))
-                game_date_pt = game_date_utc.astimezone(PT)
-                game_time_pt = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
-                game_date_str = game_date_pt.strftime('%A, %B %d')
-                
-                # Get stadium
-                venue_name = comp.get('venue', {}).get('fullName', 'Unknown Stadium')
-                stadium_config = next((s for s in STADIUMS if s['stadium'] == venue_name), None)
-                
-                if not stadium_config:
-                    continue
-                
-                # Get weather
-                weather = get_weather_for_stadium(stadium_config)
-                if not weather:
-                    continue
-                
-                # Get air quality
-                lat = stadium_config.get('latitude')
-                lon = stadium_config.get('longitude')
-                air_quality_data = get_air_quality(lat, lon)
-                
-                air_quality_info = {}
-                if air_quality_data:
-                    aqi_cat = get_aqi_category(air_quality_data['aqi'])
-                    air_quality_info = {
-                        'aqi': air_quality_data['aqi'],
-                        'category': aqi_cat['category'],
-                        'emoji': aqi_cat['emoji'],
-                        'pm25': air_quality_data['pm25'],
-                        'pm10': air_quality_data['pm10'],
-                        'level': aqi_cat['level']
-                    }
-                
-                # Determine risk level (weather only for now)
-                risk_level, why_triggered = get_risk_level(weather, stadium_config)
-                delay_prob = get_delay_probability(risk_level, weather)
-                
-                # Check if HIGH RISK from air quality
-                if air_quality_info and air_quality_info['aqi'] >= 150:
-                    if risk_level != 'HIGH RISK':
-                        risk_level = 'HIGH RISK'
-                        why_triggered = f"Air quality concern - AQI {air_quality_info['aqi']} ({air_quality_info['category']})"
-                        delay_prob = '🟠 HIGH — Air quality delay risk'
-                    else:
-                        why_triggered += f" + Air quality AQI {air_quality_info['aqi']}"
-                
-                # Only add if HIGH RISK
-                if risk_level == 'HIGH RISK':
-                    high_risk_games.append({
-                        'home_team': home_team,
-                        'away_team': away_team,
-                        'date': game_date_str,
-                        'time': game_time_pt,
-                        'weather': weather,
-                        'air_quality': air_quality_info,
-                        'risk_level': risk_level,
-                        'why_triggered': why_triggered,
-                        'delay_prob': delay_prob
-                    })
-                    print(f"🚨 HIGH RISK: {away_team} @ {home_team}")
-            
-            except Exception as e:
-                print(f"Error processing game: {e}")
-                continue
-        
-        # Post results
-        if high_risk_games:
-            print(f"📢 Found {len(high_risk_games)} high-risk game(s)")
-            post_high_risk_alert(high_risk_games)
-        else:
-            print("✅ No high-risk games - posting All Clear")
-            post_high_risk_alert([], all_clear=True)
-    
-    except Exception as e:
-        print(f"Error: {e}")
-        import traceback
-        traceback.print_exc()
 
 def main():
-    """Main function."""
-    try:
-        check_high_risk_games()
-    except Exception as e:
-        print(f"Fatal error: {e}")
-        import traceback
-        traceback.print_exc()
+    """Main execution: check all stadiums and post HIGH RISK alerts only."""
+    print("🔍 Checking MLS stadiums for HIGH RISK conditions...")
+    
+    high_risk_alerts = check_all_stadiums_for_high_risk()
+    
+    if high_risk_alerts:
+        print(f"🚨 Found {len(high_risk_alerts)} stadium(s) with HIGH RISK conditions!")
+        for alert in high_risk_alerts:
+            send_slack_alert(alert)
+    else:
+        print("✅ No HIGH RISK conditions detected. No alerts posted.")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
