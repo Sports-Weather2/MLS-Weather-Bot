@@ -43,11 +43,88 @@ def get_mls_games_for_date(target_date=None):
         traceback.print_exc()
         return []
 
+def get_next_scheduled_game():
+    """Find next scheduled game using competitors array."""
+    try:
+        tomorrow = datetime.now(PT).date() + timedelta(days=1)
+        end_date = tomorrow + timedelta(days=13)
+        
+        start_str = tomorrow.strftime('%Y%m%d')
+        end_str = end_date.strftime('%Y%m%d')
+        date_range = f"{start_str}-{end_str}"
+        
+        url = f"{ESPN_MLS_SCOREBOARD}?dates={date_range}"
+        print(f"Fetching next 14 days: {url}")
+        
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        events = data.get('events', [])
+        print(f"Total events in range: {len(events)}")
+        
+        if not events:
+            print("No events found")
+            return None
+        
+        for idx, event in enumerate(events):
+            try:
+                if 'competitions' not in event:
+                    continue
+                
+                comp = event['competitions'][0]
+                competitors = comp.get('competitors', [])
+                
+                home_competitor = next((c for c in competitors if c.get('homeAway') == 'home'), None)
+                away_competitor = next((c for c in competitors if c.get('homeAway') == 'away'), None)
+                
+                if not home_competitor or not away_competitor:
+                    continue
+                
+                home_team = home_competitor.get('team', {}).get('displayName', '')
+                away_team = away_competitor.get('team', {}).get('displayName', '')
+                
+                if not home_team or not away_team:
+                    continue
+                
+                date_str = event.get('date', '')
+                if not date_str:
+                    continue
+                
+                game_date_utc = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                game_date_pt = game_date_utc.astimezone(PT)
+                
+                formatted_date = game_date_pt.strftime('%A, %B %d')
+                formatted_time = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
+                
+                print(f"Found valid game: {away_team} @ {home_team}")
+                
+                return {
+                    'date': formatted_date,
+                    'time': formatted_time,
+                    'home_team': home_team,
+                    'away_team': away_team
+                }
+            
+            except Exception as e:
+                continue
+        
+        print("No valid games found after checking all events")
+        return None
+    
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
 def post_high_risk_alert(high_risk_games):
     """Post ONE consolidated message with all HIGH RISK games."""
     try:
         if not high_risk_games:
-            # Post "All Clear" message
+            # Post "All Clear" message with next match info
+            next_game = get_next_scheduled_game()
+            
             blocks = [
                 {
                     "type": "header",
@@ -64,17 +141,29 @@ def post_high_risk_alert(high_risk_games):
                         "type": "mrkdwn",
                         "text": "✅ *System Status: Active & Monitoring*\n\n🟢 All Clear — No high-risk games today"
                     }
-                },
-                {
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "mrkdwn",
-                            "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
-                        }
-                    ]
                 }
             ]
+            
+            # Add next match info if available
+            if next_game:
+                blocks.append({"type": "divider"})
+                blocks.append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"🗓️ *Next Scheduled Match:*\n{next_game['date']} at {next_game['time']}\n⚽ {next_game['away_team']} @ {next_game['home_team']}"
+                    }
+                })
+            
+            blocks.append({
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
+                    }
+                ]
+            })
         else:
             # Post consolidated HIGH RISK message with all games
             blocks = [
