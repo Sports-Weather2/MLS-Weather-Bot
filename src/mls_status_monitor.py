@@ -1,13 +1,18 @@
 import os
 import requests
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+import pytz
 
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 
 def get_game_schedule():
-    """Fetch today's MLS game schedule from ESPN API."""
+    """Fetch today's MLS game schedule from ESPN API (PT timezone)."""
     try:
+        # Get today's date in PT
+        pt_tz = pytz.timezone('America/Los_Angeles')
+        today_pt = datetime.now(pt_tz).date()
+        
         response = requests.get(
             "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard",
             timeout=10
@@ -19,6 +24,20 @@ def get_game_schedule():
         games_today = []
         
         for event in events:
+            # Parse event date and convert to PT
+            date_str = event.get("date", "")
+            if date_str:
+                try:
+                    # Parse ISO format date: "2026-07-25T19:30Z"
+                    event_dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                    event_date_pt = event_dt.astimezone(pt_tz).date()
+                    
+                    # Only include games from today (PT)
+                    if event_date_pt != today_pt:
+                        continue
+                except:
+                    continue
+            
             # Parse competitors array
             competitors = event.get("competitors", [])
             if len(competitors) >= 2:
@@ -38,6 +57,7 @@ def get_game_schedule():
                         "venue": event.get("venue", {}).get("fullName", "Unknown Venue")
                     })
         
+        print(f"✅ Found {len(games_today)} games for today (PT)")
         return games_today
     except Exception as e:
         print(f"Error fetching game schedule: {e}")
@@ -60,7 +80,6 @@ def get_next_game_date():
             next_event = events[0]
             date_str = next_event.get("date", "")
             if date_str:
-                # Parse date like "2026-07-25T19:30Z"
                 dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
                 return dt.strftime("%A %B %d")
         
