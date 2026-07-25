@@ -1,16 +1,15 @@
-name: High-Risk Weather Alert
+name: MLS High-Risk Weather Alert
 
 on:
   schedule:
-    - cron: '0 17 * * *'  # 10:00 AM PT = 17:00 UTC
+    - cron: '0 17 * * *'  # 10:00 AM PT (17:00 UTC)
   workflow_dispatch:
 
 jobs:
-  high-risk-alert:
+  check-high-risk:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -27,6 +26,3 @@ jobs:
           SLACK_WEBHOOK_URL_HIGH_RISK: ${{ secrets.SLACK_WEBHOOK_URL_HIGH_RISK }}
           OPENWEATHERMAP_API_KEY: ${{ secrets.OPENWEATHERMAP_API_KEY }}
         run: python -m src.high_risk_alert
-
-      - name: Log completion
-        run: echo "✅ High-risk alert workflow completed at $(date)"
