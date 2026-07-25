@@ -188,7 +188,7 @@
       "country": "USA"
     },
     {
-      "team_id": "NYCFC",
+      "team_id": "NYRB",
       "team_name": "New York Red Bulls",
       "city": "Harrison",
       "stadium": "Red Bull Arena",
@@ -243,7 +243,7 @@
       "country": "USA"
     },
     {
-      "team_id": "ATT",
+      "team_id": "MIA",
       "team_name": "Inter Miami CF",
       "city": "Fort Lauderdale",
       "stadium": "Hard Rock Stadium",
@@ -276,13 +276,57 @@
       "country": "USA"
     },
     {
-      "team_id": "LAFC2",
+      "team_id": "NSH",
       "team_name": "Nashville SC",
       "city": "Nashville",
       "stadium": "GEODIS Park",
       "latitude": 36.1427,
       "longitude": -86.7816,
       "timezone": "US/Central",
+      "roofed": false,
+      "country": "USA"
+    },
+    {
+      "team_id": "AUS",
+      "team_name": "Austin FC",
+      "city": "Austin",
+      "stadium": "Q2 Stadium",
+      "latitude": 30.3852,
+      "longitude": -97.7227,
+      "timezone": "US/Central",
+      "roofed": false,
+      "country": "USA"
+    },
+    {
+      "team_id": "SD",
+      "team_name": "San Diego FC",
+      "city": "San Diego",
+      "stadium": "Snapdragon Stadium",
+      "latitude": 32.7157,
+      "longitude": -117.1611,
+      "timezone": "US/Pacific",
+      "roofed": false,
+      "country": "USA"
+    },
+    {
+      "team_id": "CIN",
+      "team_name": "FC Cincinnati",
+      "city": "Cincinnati",
+      "stadium": "TQL Stadium",
+      "latitude": 39.0618,
+      "longitude": -84.5099,
+      "timezone": "US/Eastern",
+      "roofed": false,
+      "country": "USA"
+    },
+    {
+      "team_id": "CLT",
+      "team_name": "Charlotte FC",
+      "city": "Charlotte",
+      "stadium": "Bank of America Stadium",
+      "latitude": 35.2254,
+      "longitude": -80.8433,
+      "timezone": "US/Eastern",
       "roofed": false,
       "country": "USA"
     }
