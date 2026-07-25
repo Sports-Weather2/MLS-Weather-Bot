@@ -3,15 +3,16 @@ import requests
 import json
 from datetime import datetime
 from src.utils import (
-    get_nws_forecast,
-    get_openweathermap_forecast,
-    get_air_quality,
+    get_weather_for_stadium,
     get_aqi_category,
-    get_stadium_coordinates,
-    get_all_stadiums,
+    get_air_quality,
 )
 
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
+
+# Load stadiums
+with open('config/mls_stadiums.json', 'r') as f:
+    STADIUMS = json.load(f)
 
 def get_game_schedule():
     """Fetch today's MLS game schedule from ESPN API."""
@@ -52,38 +53,44 @@ def get_game_schedule():
         return []
 
 
+def find_stadium_for_team(team_name):
+    """Find stadium config for a team by name."""
+    for stadium in STADIUMS:
+        team_info = stadium.get("teams", [])
+        for team in team_info:
+            if team.lower() in team_name.lower() or team_name.lower() in team.lower():
+                return stadium
+    return None
+
+
 def get_weather_for_game(home_team):
     """Get weather data for a team's stadium."""
-    stadiums = get_all_stadiums()
+    stadium_config = find_stadium_for_team(home_team)
     
-    for stadium in stadiums:
-        # Try to match team name to stadium
-        if home_team.lower() in stadium.get("name", "").lower() or \
-           any(alias.lower() in home_team.lower() for alias in stadium.get("aliases", [])):
-            
-            lat = stadium.get("lat")
-            lon = stadium.get("lon")
-            api_source = stadium.get("api_source", "nws")
-            
-            try:
-                # Get weather data
-                if api_source == "openweathermap":
-                    weather_data = get_openweathermap_forecast(lat, lon)
-                else:  # nws
-                    weather_data = get_nws_forecast(lat, lon)
-                
-                # Get air quality
-                aqi = get_air_quality(lat, lon)
-                if weather_data:
-                    weather_data["aqi"] = aqi
-                
-                return weather_data, stadium.get("name")
-            
-            except Exception as e:
-                print(f"Error getting weather for {home_team}: {e}")
-                return None, None
+    if not stadium_config:
+        print(f"Stadium not found for {home_team}")
+        return None, None
     
-    return None, None
+    try:
+        weather_data = get_weather_for_stadium(stadium_config)
+        
+        if weather_data:
+            # Get air quality
+            lat = stadium_config.get("latitude")
+            lon = stadium_config.get("longitude")
+            aqi_data = get_air_quality(lat, lon)
+            
+            if aqi_data:
+                weather_data["aqi"] = aqi_data.get("aqi", 0)
+                weather_data["pm25"] = aqi_data.get("pm25", 0)
+            
+            return weather_data, stadium_config.get("stadium")
+        
+        return None, None
+    
+    except Exception as e:
+        print(f"Error getting weather for {home_team}: {e}")
+        return None, None
 
 
 def format_weather_blocks(game, weather_data, stadium_name):
@@ -97,10 +104,10 @@ def format_weather_blocks(game, weather_data, stadium_name):
             }
         }
     
-    temp = weather_data.get("temp", "N/A")
-    rain_prob = weather_data.get("rain_prob", 0)
+    temp = weather_data.get("temperature", "N/A")
+    rain_prob = weather_data.get("rain_probability", 0)
     wind_speed = weather_data.get("wind_speed", 0)
-    has_thunderstorm = weather_data.get("thunderstorm", False)
+    has_thunderstorm = weather_data.get("thunderstorms", False)
     aqi = weather_data.get("aqi", 0)
     
     # Determine weather emoji/status
@@ -116,12 +123,14 @@ def format_weather_blocks(game, weather_data, stadium_name):
     aqi_text = ""
     if aqi > 0:
         aqi_category = get_aqi_category(aqi)
+        category_name = aqi_category.get("category", "Unknown")
+        emoji = aqi_category.get("emoji", "")
         if aqi >= 150:
-            aqi_text = f" | 💨 AQI {aqi} (🔴 {aqi_category})"
+            aqi_text = f" | 💨 AQI {aqi} ({emoji} {category_name})"
         elif aqi >= 101:
-            aqi_text = f" | 💨 AQI {aqi} (🟡 {aqi_category})"
+            aqi_text = f" | 💨 AQI {aqi} ({emoji} {category_name})"
         else:
-            aqi_text = f" | 💨 AQI {aqi} (🟢 {aqi_category})"
+            aqi_text = f" | 💨 AQI {aqi} ({emoji} {category_name})"
     
     weather_text = f"*Temp:* {temp}°F | *Rain:* {rain_prob}% | *Wind:* {wind_speed} mph{thunderstorm_text}{aqi_text}"
     
