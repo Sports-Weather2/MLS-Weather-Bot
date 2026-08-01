@@ -2,15 +2,14 @@ name: Daily Weather Report
 
 on:
   schedule:
-    - cron: '0 14 * * *'  # 7:00 AM PT = 14:00 UTC
+    - cron: '0 14 * * *'  # 14:00 UTC = 7:00 AM PT
   workflow_dispatch:
 
 jobs:
-  weather-check:
+  daily-weather-report:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -22,11 +21,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run MLS weather bot
+      - name: Run weather bot
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           OPENWEATHERMAP_API_KEY: ${{ secrets.OPENWEATHERMAP_API_KEY }}
         run: python -m src.weather_bot
-
-      - name: Log completion
-        run: echo "✅ Weather bot workflow completed at $(date)"
