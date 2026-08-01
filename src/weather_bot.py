@@ -420,7 +420,7 @@ def post_gameday_dashboard(games):
             }
         })
         
-        # Monitoring window
+        # Monitoring window - UPDATED LOGIC FOR SINGLE GAME
         blocks.append({"type": "divider"})
         blocks.append({
             "type": "section",
@@ -431,9 +431,15 @@ def post_gameday_dashboard(games):
         })
         
         if earliest_game and latest_game:
-            earliest_info = f"{earliest_game[0]} @ {earliest_game[1]} ({earliest_game[2]})"
-            latest_info = f"{latest_game[0]} @ {latest_game[1]} ({latest_game[2]})"
-            monitoring_text = f"🎬 *First game:* {earliest_info}\n📍 *Last game:* {latest_info}\n🚨 *Real-time monitoring:* 10 AM - 10 PM PT"
+            if total_games == 1:
+                # Single game - only show game time once
+                earliest_info = f"{earliest_game[0]} @ {earliest_game[1]} ({earliest_game[2]})"
+                monitoring_text = f"🎬 *Match:* {earliest_info}\n🚨 *Real-time monitoring:* 10 AM - 10 PM PT"
+            else:
+                # Multiple games - show first and last
+                earliest_info = f"{earliest_game[0]} @ {earliest_game[1]} ({earliest_game[2]})"
+                latest_info = f"{latest_game[0]} @ {latest_game[1]} ({latest_game[2]})"
+                monitoring_text = f"🎬 *First game:* {earliest_info}\n📍 *Last game:* {latest_info}\n🚨 *Real-time monitoring:* 10 AM - 10 PM PT"
         else:
             monitoring_text = "🚨 *Real-time monitoring:* 10 AM - 10 PM PT"
         
