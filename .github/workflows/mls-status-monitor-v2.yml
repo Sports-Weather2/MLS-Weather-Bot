@@ -2,7 +2,7 @@ name: MLS Game Status Monitor
 
 on:
   schedule:
-    - cron: '0 7 * * *'  # 7:00 AM PT (14:00 UTC)
+    - cron: '0 14 * * *'  # 14:00 UTC = 7:00 AM PT
   workflow_dispatch:
 
 jobs:
