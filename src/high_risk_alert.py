@@ -124,11 +124,12 @@ def get_next_scheduled_game():
         return None
 
 def post_high_risk_alert(games):
-    """Post HIGH RISK games or All Clear message."""
+    """Post HIGH RISK games or All Clear message. GAME DAY VERSION (1+ games)."""
     try:
         print(f"Line 11: Processing {len(games)} games for high risk alert")
         
         high_risk_games = []
+        total_games = 0
         
         for idx, game in enumerate(games):
             try:
@@ -182,6 +183,8 @@ def post_high_risk_alert(games):
                 
                 risk_level, why_triggered = get_risk_level(weather, stadium_config)
                 
+                total_games += 1
+                
                 if risk_level == 'HIGH RISK':
                     high_risk_games.append({
                         'matchup': f"{away_team} @ {home_team}",
@@ -197,7 +200,7 @@ def post_high_risk_alert(games):
                 traceback.print_exc()
                 continue
         
-        print(f"\nLine 13: Found {len(high_risk_games)} HIGH RISK games")
+        print(f"\nLine 13: Found {len(high_risk_games)} HIGH RISK games out of {total_games} total")
         
         # Build alert message
         blocks = [
@@ -228,8 +231,8 @@ def post_high_risk_alert(games):
             })
         
         else:
-            # ALL CLEAR
-            alert_text = "🟢 *All Clear*\n\nNo high-risk conditions detected today"
+            # ALL CLEAR - GAME DAY (1+ games, but no HIGH RISK)
+            alert_text = f"🟢 *All Clear*\n\nAll {total_games} games today have favorable conditions\nNo high-risk weather or air quality concerns detected"
             
             blocks.append({
                 "type": "section",
@@ -239,13 +242,61 @@ def post_high_risk_alert(games):
                 }
             })
         
-        # Add next match info
+        # NO "Next Match" line on game days - colleagues already saw games in 7 AM dashboard
+        
         blocks.append({"type": "divider"})
+        blocks.append({
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
+                }
+            ]
+        })
+        
+        message = {"blocks": blocks}
+        response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=message, timeout=10)
+        response.raise_for_status()
+        print(f"Line 14: High risk alert posted to Slack")
+        
+    except Exception as e:
+        print(f"Line 15: Error posting high risk alert: {e}")
+        import traceback
+        traceback.print_exc()
+
+def post_no_games_alert():
+    """Post All Clear message for NO-GAMES DAYS with next match info."""
+    try:
+        print("Line 16: No games today - posting off-day message with next match")
+        
         next_game = get_next_scheduled_game()
+        
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "⚽ MLS High Risk Alert",
+                    "emoji": True
+                }
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "🟢 *All Clear*\n\nNo games scheduled today"
+                }
+            },
+            {"type": "divider"}
+        ]
+        
+        # ONLY show next match on no-games days
         if next_game:
-            next_match_text = f"📅 *Next Match:* {next_game['away_team']} @ {next_game['home_team']}\n{next_game['date']} @ {next_game['time']}"
+            next_match_text = f"🏟️ *Next Match:* {next_game['away_team']} @ {next_game['home_team']}\n{next_game['date']} @ {next_game['time']}"
         else:
-            next_match_text = "📅 *Next Match:* TBD"
+            next_match_text = "🏟️ *Next Match:* TBD"
         
         blocks.append({
             "type": "section",
@@ -269,10 +320,10 @@ def post_high_risk_alert(games):
         message = {"blocks": blocks}
         response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=message, timeout=10)
         response.raise_for_status()
-        print(f"Line 14: High risk alert posted to Slack")
+        print(f"Line 17: No-games alert posted to Slack")
         
     except Exception as e:
-        print(f"Line 15: Error posting high risk alert: {e}")
+        print(f"Line 18: Error posting no-games alert: {e}")
         import traceback
         traceback.print_exc()
 
@@ -282,12 +333,13 @@ def main():
         print("Line 0: Starting high_risk_alert.py")
         today_games = get_mls_games_for_date()
         
-        # NO GAMES SCHEDULED - DO NOT POST TO HIGH RISK ALERTS CHANNEL
+        # NO GAMES SCHEDULED - POST OFF-DAY MESSAGE WITH NEXT MATCH INFO
         if not today_games or len(today_games) == 0:
-            print("Line X: No games today - skipping high risk alert")
+            print("Line X: No games today - posting off-day message")
+            post_no_games_alert()
             return
         
-        # GAMES EXIST - POST HIGH RISK ALERT
+        # GAMES EXIST - POST HIGH RISK ALERT (NO next match line on game days)
         print("Line Y: Games found - posting high risk alert")
         post_high_risk_alert(today_games)
     
