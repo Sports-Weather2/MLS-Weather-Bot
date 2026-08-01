@@ -16,11 +16,11 @@
 
 | Metric | Count |
 |--------|-------|
-| 📅 Games Monitored | 14 |
+| 📅 Games Monitored | 0 |
 | 📬 Total Alerts Sent | 2 |
 | 📊 Daily Reports | 1 |
-| 🚨 High-Risk Alerts | 1 |
-| 🟡 Monitor Alerts | 1 |
+| 🚨 High-Risk Alerts | 0 |
+| 🟡 Monitor Alerts | 0 |
 | 🟢 Clear Alerts | 0 |
 | ⏸️ Actual Delays | 0 |
 | 📅 Actual Postponements | 0 |
@@ -33,7 +33,7 @@
 |--------|-------|
 | Actual Delays Occurred | 0 |
 | Correctly Predicted | 0 |
-| **Accuracy Rate** | **N/A** |
+| **Accuracy Rate** | **0.0%** |
 | False Positives | 0 |
 | False Negatives | 0 |
 
@@ -63,10 +63,12 @@
 - ⏸️ Delays Detected: 0
 - 📅 Postponements: 0
 
-### Yesterday (August 01, 2026)
+### Yesterday (July 31, 2026)
 
-- 🎮 Games Scheduled: 14
+- 🎮 Games Scheduled: 0
 - 📊 Alerts Sent: 0
+  - 🚨 High-Risk: 0
+  - 🟡 Monitor: 0
 - ⏸️ Delays Detected: 0
 - 📅 Postponements: 0
 
@@ -143,5 +145,6 @@ This file should be manually updated daily after reviewing:
 
 ---
 
-_Last updated: August 02, 2026 07:15 AM PT_
+_Last updated: August 01, 2026 05:45 AM PT
+_Next review: August 02, 2026_ August 02, 2026 07:15 AM PT_
 _Next review: August 03, 2026_
