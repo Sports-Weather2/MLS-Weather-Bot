@@ -2,35 +2,40 @@ name: Analytics Update
 
 on:
   schedule:
-    - cron: '0 15 * * *'  # 15:00 UTC = 8:00 AM PT daily
+    - cron: '0 15 * * *'  # 8 AM PT
   workflow_dispatch:
 
 jobs:
   update-analytics:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
+    permissions:
+      contents: write
       
+    steps:
+      - name: Set up job
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      
+          
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      
+          
       - name: Run analytics update
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-          OPENWEATHERMAP_API_KEY: ${{ secrets.OPENWEATHERMAP_API_KEY }}
-        run: python -m src.analytics
-      
+        run: python src/analytics.py
+        
       - name: Commit updated analytics
         run: |
           git config user.name "Analytics Bot"
-          git config user.email "bot@analytics.local"
+          git config user.email "analytics@github.com"
           git add ANALYTICS.md
-          git commit -m "Update: Analytics data $(date +%Y-%m-%d)" || true
+          git commit -m "Update: Analytics data $(date -u +'%Y-%m-%d')" || true
           git push
