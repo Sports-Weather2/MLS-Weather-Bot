@@ -327,6 +327,164 @@ def post_no_games_alert():
         import traceback
         traceback.print_exc()
 
+def post_weather_delay_alert(matchup, delay_reason, current_score=None, minute=None):
+    """Post REAL-TIME weather delay alert with @channel tag."""
+    try:
+        print(f"Line 19: Posting WEATHER DELAY alert for {matchup}")
+        
+        # Build alert text with @channel tag
+        alert_text = "@channel\n\n🚨 *WEATHER DELAY DETECTED*\n\n"
+        alert_text += f"🎬 {matchup}\n"
+        alert_text += f"⏸️ Kickoff DELAYED\n"
+        alert_text += f"🌩️ Reason: {delay_reason}\n"
+        
+        if current_score and minute:
+            alert_text += f"📊 Score: {current_score} | {minute}'\n"
+        
+        alert_text += f"⏱️ Expected update: 15-30 minutes\n\n"
+        alert_text += "Status: Monitoring weather — will resume when safe"
+        
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "⚽ MLS High Risk Alert",
+                    "emoji": True
+                }
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": alert_text
+                }
+            },
+            {"type": "divider"},
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
+                    }
+                ]
+            }
+        ]
+        
+        message = {"blocks": blocks}
+        response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=message, timeout=10)
+        response.raise_for_status()
+        print(f"Line 20: Weather delay alert posted with @channel tag")
+        
+    except Exception as e:
+        print(f"Line 21: Error posting weather delay alert: {e}")
+        import traceback
+        traceback.print_exc()
+
+def post_game_resuming_alert(matchup, current_score, minute):
+    """Post REAL-TIME game resuming alert with @channel tag."""
+    try:
+        print(f"Line 22: Posting GAME RESUMING alert for {matchup}")
+        
+        # Build alert text with @channel tag
+        alert_text = "@channel\n\n✅ *GAME RESUMING*\n\n"
+        alert_text += f"🎬 {matchup}\n"
+        alert_text += f"⚽ Play resuming now\n"
+        alert_text += f"📊 Current score: {current_score} | {minute}'\n\n"
+        alert_text += "Status: Game proceeding"
+        
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "⚽ MLS High Risk Alert",
+                    "emoji": True
+                }
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": alert_text
+                }
+            },
+            {"type": "divider"},
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
+                    }
+                ]
+            }
+        ]
+        
+        message = {"blocks": blocks}
+        response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=message, timeout=10)
+        response.raise_for_status()
+        print(f"Line 23: Game resuming alert posted with @channel tag")
+        
+    except Exception as e:
+        print(f"Line 24: Error posting game resuming alert: {e}")
+        import traceback
+        traceback.print_exc()
+
+def post_game_postponed_alert(matchup, postpone_reason):
+    """Post REAL-TIME game postponed alert with @channel tag."""
+    try:
+        print(f"Line 25: Posting GAME POSTPONED alert for {matchup}")
+        
+        # Build alert text with @channel tag
+        alert_text = "@channel\n\n📅 *GAME POSTPONED*\n\n"
+        alert_text += f"🎬 {matchup}\n"
+        alert_text += f"❌ Match cancelled\n"
+        alert_text += f"🌧️ Reason: {postpone_reason}\n\n"
+        alert_text += "🗓️ Reschedule: TBD — League will announce new date/time"
+        
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "⚽ MLS High Risk Alert",
+                    "emoji": True
+                }
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": alert_text
+                }
+            },
+            {"type": "divider"},
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
+                    }
+                ]
+            }
+        ]
+        
+        message = {"blocks": blocks}
+        response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=message, timeout=10)
+        response.raise_for_status()
+        print(f"Line 26: Game postponed alert posted with @channel tag")
+        
+    except Exception as e:
+        print(f"Line 27: Error posting game postponed alert: {e}")
+        import traceback
+        traceback.print_exc()
+
 def main():
     """Main function."""
     try:
