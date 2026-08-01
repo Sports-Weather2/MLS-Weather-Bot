@@ -12,6 +12,7 @@ from src.utils import (
 )
 
 SLACK_WEBHOOK_URL_HIGH_RISK = os.getenv('SLACK_WEBHOOK_URL_HIGH_RISK')
+OPENWEATHERMAP_API_KEY = os.getenv('OPENWEATHERMAP_API_KEY')
 ESPN_MLS_SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard'
 
 with open('config/mls_stadiums.json', 'r') as f:
@@ -20,7 +21,7 @@ with open('config/mls_stadiums.json', 'r') as f:
 PT = pytz.timezone('America/Los_Angeles')
 
 def get_mls_games_for_date(target_date=None):
-    """Fetch MLS games for a specific date."""
+    """Fetch MLS games for a specific date using ESPN dates parameter."""
     try:
         if target_date is None:
             target_date = datetime.now(PT).date()
@@ -28,17 +29,21 @@ def get_mls_games_for_date(target_date=None):
         date_str = target_date.strftime('%Y%m%d')
         url = f"{ESPN_MLS_SCOREBOARD}?dates={date_str}"
         
-        print(f"Fetching games for {date_str}: {url}")
+        print(f"Line 1: Fetching games for {date_str}: {url}")
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
         
-        games = data.get('events', [])
-        print(f"Found {len(games)} games on {date_str}")
-        return games
+        if 'events' in data:
+            games = data['events']
+            print(f"Line 2: Found {len(games)} games on {date_str}")
+            return games
+        else:
+            print(f"Line 3: No 'events' key in response")
+            return []
     
     except Exception as e:
-        print(f"Error fetching games: {e}")
+        print(f"Line 4: Error fetching games: {e}")
         import traceback
         traceback.print_exc()
         return []
@@ -54,17 +59,17 @@ def get_next_scheduled_game():
         date_range = f"{start_str}-{end_str}"
         
         url = f"{ESPN_MLS_SCOREBOARD}?dates={date_range}"
-        print(f"Fetching next 14 days: {url}")
+        print(f"Line 5: Fetching next 14 days: {url}")
         
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
         
         events = data.get('events', [])
-        print(f"Total events in range: {len(events)}")
+        print(f"Line 6: Total events in range: {len(events)}")
         
         if not events:
-            print("No events found")
+            print("Line 7: No events found")
             return None
         
         for idx, event in enumerate(events):
@@ -97,7 +102,7 @@ def get_next_scheduled_game():
                 formatted_date = game_date_pt.strftime('%A, %B %d')
                 formatted_time = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
                 
-                print(f"Found valid game: {away_team} @ {home_team}")
+                print(f"Line 8: Found valid game: {away_team} @ {home_team}")
                 
                 return {
                     'date': formatted_date,
@@ -109,160 +114,34 @@ def get_next_scheduled_game():
             except Exception as e:
                 continue
         
-        print("No valid games found after checking all events")
+        print("Line 9: No valid games found after checking all events")
         return None
     
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Line 10: Error: {e}")
         import traceback
         traceback.print_exc()
         return None
 
-def post_high_risk_alert(high_risk_games):
-    """Post ONE consolidated message with all HIGH RISK games."""
+def post_high_risk_alert(games):
+    """Post HIGH RISK games or All Clear message."""
     try:
-        if not high_risk_games:
-            # Post "All Clear" message with next match info
-            next_game = get_next_scheduled_game()
-            
-            blocks = [
-                {
-                    "type": "header",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "⚽ MLS High-Risk Weather Alert",
-                        "emoji": True
-                    }
-                },
-                {"type": "divider"},
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "✅ *System Status: Active & Monitoring*\n\n🟢 All Clear — No high-risk games today"
-                    }
-                }
-            ]
-            
-            # Add next match info if available
-            if next_game:
-                blocks.append({"type": "divider"})
-                blocks.append({
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"🗓️ *Next Scheduled Match:*\n{next_game['date']} at {next_game['time']}\n⚽ {next_game['away_team']} @ {next_game['home_team']}"
-                    }
-                })
-            
-            blocks.append({
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
-                    }
-                ]
-            })
-        else:
-            # Post consolidated HIGH RISK message with all games
-            blocks = [
-                {
-                    "type": "header",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "⚽ MLS High-Risk Weather Alert",
-                        "emoji": True
-                    }
-                },
-                {"type": "divider"},
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"🔴 *{len(high_risk_games)} High-Risk Game(s) Detected*\n\nImmediate attention may be required for scheduling and EPG adjustments."
-                    }
-                },
-                {"type": "divider"}
-            ]
-            
-            # Add all high-risk games in ONE section with compact format
-            games_text = ""
-            for idx, game in enumerate(high_risk_games):
-                # Compact format for multiple games
-                games_text += f"🔴 *{game['away']} @ {game['home']}*\n"
-                games_text += f"   📅 {game['date']} at {game['time']}\n"
-                games_text += f"   📋 {game['why_triggered']}\n"
-                games_text += f"   🎯 Delay Prob: {game['delay_prob']}\n"
-                
-                # Add air quality if available
-                if game['air_quality']:
-                    aqi = game['air_quality'].get('aqi', 0)
-                    emoji = game['air_quality'].get('emoji', '🟡')
-                    category = game['air_quality'].get('category', '')
-                    games_text += f"   {emoji} AQI {aqi} ({category})\n"
-                
-                # Weather summary
-                weather = game['weather']
-                temp = weather.get('temperature', 'N/A')
-                rain = weather.get('rain_probability', 0)
-                wind = weather.get('wind_speed', 0)
-                conditions = weather.get('conditions', 'Unknown')
-                games_text += f"   🌡️ {temp}°F | 💧 {rain}% | 💨 {wind} mph | {conditions}\n"
-                
-                # Add space between games
-                if idx < len(high_risk_games) - 1:
-                    games_text += "\n"
-            
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": games_text
-                }
-            })
-            
-            blocks.append({"type": "divider"})
-            blocks.append({
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
-                    }
-                ]
-            })
-        
-        message = {"blocks": blocks}
-        response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=message, timeout=10)
-        response.raise_for_status()
-        print(f"✅ High-risk alert posted to Slack ({len(high_risk_games)} games)")
-        
-    except Exception as e:
-        print(f"❌ Error posting alert: {e}")
-        import traceback
-        traceback.print_exc()
-
-def main():
-    """Main function - check for HIGH RISK games and post ONE consolidated message."""
-    try:
-        print("Starting high_risk_alert.py")
-        
-        today_games = get_mls_games_for_date()
-        if not today_games:
-            print("No games today")
-            post_high_risk_alert([])
-            return
+        print(f"Line 11: Processing {len(games)} games for high risk alert")
         
         high_risk_games = []
         
-        for idx, game in enumerate(today_games):
+        for idx, game in enumerate(games):
             try:
+                print(f"Line 12.{idx}: Processing game...")
+                
                 if not isinstance(game, dict) or 'competitions' not in game:
                     continue
                 
                 comp = game['competitions'][0]
                 competitors = comp.get('competitors', [])
+                
+                if not competitors or len(competitors) < 2:
+                    continue
                 
                 home_competitor = next((c for c in competitors if c.get('homeAway') == 'home'), None)
                 away_competitor = next((c for c in competitors if c.get('homeAway') == 'away'), None)
@@ -284,11 +163,12 @@ def main():
                     game_date_utc = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
                     game_date_pt = game_date_utc.astimezone(PT)
                     game_time_pt = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
-                    game_date_str = game_date_pt.strftime('%A, %B %d')
                 except Exception as e:
+                    print(f"Line 12.{idx}g: Error parsing date {date_str}: {e}")
                     continue
                 
                 venue_name = comp.get('venue', {}).get('fullName', 'Unknown Stadium')
+                
                 stadium_config = next((s for s in STADIUMS if s['stadium'] == venue_name), None)
                 
                 if not stadium_config:
@@ -302,50 +182,117 @@ def main():
                 
                 risk_level, why_triggered = get_risk_level(weather, stadium_config)
                 
-                # Only add if HIGH RISK
-                if risk_level != 'HIGH RISK':
-                    continue
+                if risk_level == 'HIGH RISK':
+                    high_risk_games.append({
+                        'matchup': f"{away_team} @ {home_team}",
+                        'time': game_time_pt,
+                        'reason': why_triggered
+                    })
                 
-                delay_prob = get_delay_probability(risk_level, weather)
-                
-                # Get air quality
-                lat = stadium_config.get('latitude')
-                lon = stadium_config.get('longitude')
-                air_quality_data = get_air_quality(lat, lon)
-                
-                air_quality_info = {}
-                if air_quality_data:
-                    aqi_cat = get_aqi_category(air_quality_data['aqi'])
-                    air_quality_info = {
-                        'aqi': air_quality_data['aqi'],
-                        'category': aqi_cat['category'],
-                        'emoji': aqi_cat['emoji'],
-                        'pm25': air_quality_data['pm25'],
-                    }
-                
-                high_risk_games.append({
-                    'home': home_team,
-                    'away': away_team,
-                    'date': game_date_str,
-                    'time': game_time_pt,
-                    'weather': weather,
-                    'air_quality': air_quality_info,
-                    'risk_level': risk_level,
-                    'why_triggered': why_triggered,
-                    'delay_prob': delay_prob
-                })
+                print(f"Line 12.{idx}z: ✅ Processed: {away_team} @ {home_team} - {risk_level}")
             
             except Exception as e:
-                print(f"Error processing game {idx}: {e}")
+                print(f"Line 12.{idx}ERROR: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
         
-        print(f"Found {len(high_risk_games)} HIGH RISK games")
+        print(f"\nLine 13: Found {len(high_risk_games)} HIGH RISK games")
         
-        # Post ONE consolidated message
-        post_high_risk_alert(high_risk_games)
+        # Build alert message
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "⚽ MLS High Risk Alert",
+                    "emoji": True
+                }
+            },
+            {"type": "divider"}
+        ]
+        
+        if high_risk_games:
+            # HIGH RISK GAMES FOUND
+            alert_text = "🔴 *HIGH RISK GAMES*\n\n"
+            for game in high_risk_games:
+                alert_text += f"🎬 *{game['matchup']}* ({game['time']})\n"
+                alert_text += f"⚠️ {game['reason']}\n\n"
+            
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": alert_text
+                }
+            })
+        
+        else:
+            # ALL CLEAR
+            alert_text = "🟢 *All Clear*\n\nNo high-risk conditions detected today"
+            
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": alert_text
+                }
+            })
+        
+        # Add next match info
+        blocks.append({"type": "divider"})
+        next_game = get_next_scheduled_game()
+        if next_game:
+            next_match_text = f"📅 *Next Match:* {next_game['away_team']} @ {next_game['home_team']}\n{next_game['date']} @ {next_game['time']}"
+        else:
+            next_match_text = "📅 *Next Match:* TBD"
+        
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": next_match_text
+            }
+        })
+        
+        blocks.append({"type": "divider"})
+        blocks.append({
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
+                }
+            ]
+        })
+        
+        message = {"blocks": blocks}
+        response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=message, timeout=10)
+        response.raise_for_status()
+        print(f"Line 14: High risk alert posted to Slack")
+        
+    except Exception as e:
+        print(f"Line 15: Error posting high risk alert: {e}")
+        import traceback
+        traceback.print_exc()
+
+def main():
+    """Main function."""
+    try:
+        print("Line 0: Starting high_risk_alert.py")
+        today_games = get_mls_games_for_date()
+        
+        # NO GAMES SCHEDULED - DO NOT POST TO HIGH RISK ALERTS CHANNEL
+        if not today_games or len(today_games) == 0:
+            print("Line X: No games today - skipping high risk alert")
+            return
+        
+        # GAMES EXIST - POST HIGH RISK ALERT
+        print("Line Y: Games found - posting high risk alert")
+        post_high_risk_alert(today_games)
     
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Line Z: Error: {e}")
         import traceback
         traceback.print_exc()
 
