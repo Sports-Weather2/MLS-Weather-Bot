@@ -1,3 +1,10 @@
+# high_risk_alert.py
+# Updated: August 2, 2026
+# Real-Time High-Risk Weather Alerts for MLS
+# Posts HIGH RISK games at 10 AM on game days only
+# Posts real-time alerts for delays, postponements, resumptions, suspensions with @channel tag
+# DOES NOT post on off-days (off-day alerts handled by weather_bot.py at 7 AM)
+
 import os
 import requests
 import json
@@ -19,6 +26,7 @@ with open('config/mls_stadiums.json', 'r') as f:
     STADIUMS = json.load(f)
 
 PT = pytz.timezone('America/Los_Angeles')
+
 
 def get_mls_games_for_date(target_date=None):
     """Fetch MLS games for a specific date using ESPN dates parameter."""
@@ -48,80 +56,6 @@ def get_mls_games_for_date(target_date=None):
         traceback.print_exc()
         return []
 
-def get_next_scheduled_game():
-    """Find next scheduled game using competitors array."""
-    try:
-        tomorrow = datetime.now(PT).date() + timedelta(days=1)
-        end_date = tomorrow + timedelta(days=13)
-        
-        start_str = tomorrow.strftime('%Y%m%d')
-        end_str = end_date.strftime('%Y%m%d')
-        date_range = f"{start_str}-{end_str}"
-        
-        url = f"{ESPN_MLS_SCOREBOARD}?dates={date_range}"
-        print(f"Line 5: Fetching next 14 days: {url}")
-        
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
-        events = data.get('events', [])
-        print(f"Line 6: Total events in range: {len(events)}")
-        
-        if not events:
-            print("Line 7: No events found")
-            return None
-        
-        for idx, event in enumerate(events):
-            try:
-                if 'competitions' not in event:
-                    continue
-                
-                comp = event['competitions'][0]
-                competitors = comp.get('competitors', [])
-                
-                home_competitor = next((c for c in competitors if c.get('homeAway') == 'home'), None)
-                away_competitor = next((c for c in competitors if c.get('homeAway') == 'away'), None)
-                
-                if not home_competitor or not away_competitor:
-                    continue
-                
-                home_team = home_competitor.get('team', {}).get('displayName', '')
-                away_team = away_competitor.get('team', {}).get('displayName', '')
-                
-                if not home_team or not away_team:
-                    continue
-                
-                date_str = event.get('date', '')
-                if not date_str:
-                    continue
-                
-                game_date_utc = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                game_date_pt = game_date_utc.astimezone(PT)
-                
-                formatted_date = game_date_pt.strftime('%A, %B %d')
-                formatted_time = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
-                
-                print(f"Line 8: Found valid game: {away_team} @ {home_team}")
-                
-                return {
-                    'date': formatted_date,
-                    'time': formatted_time,
-                    'home_team': home_team,
-                    'away_team': away_team
-                }
-            
-            except Exception as e:
-                continue
-        
-        print("Line 9: No valid games found after checking all events")
-        return None
-    
-    except Exception as e:
-        print(f"Line 10: Error: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
 
 def post_high_risk_alert(games):
     """Post HIGH RISK games or All Clear message. GAME DAY VERSION (1+ games)."""
@@ -265,67 +199,6 @@ def post_high_risk_alert(games):
         import traceback
         traceback.print_exc()
 
-def post_no_games_alert():
-    """Post All Clear message for NO-GAMES DAYS with next match info."""
-    try:
-        print("Line 16: No games today - posting off-day message with next match")
-        
-        next_game = get_next_scheduled_game()
-        
-        blocks = [
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": "⚽ MLS High Risk Alert",
-                    "emoji": True
-                }
-            },
-            {"type": "divider"},
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "🟢 *All Clear*\n\nNo games scheduled today"
-                }
-            },
-            {"type": "divider"}
-        ]
-        
-        # ONLY show next match on no-games days
-        if next_game:
-            next_match_text = f"🏟️ *Next Match:* {next_game['away_team']} @ {next_game['home_team']}\n{next_game['date']} @ {next_game['time']}"
-        else:
-            next_match_text = "🏟️ *Next Match:* TBD"
-        
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": next_match_text
-            }
-        })
-        
-        blocks.append({"type": "divider"})
-        blocks.append({
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
-                }
-            ]
-        })
-        
-        message = {"blocks": blocks}
-        response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=message, timeout=10)
-        response.raise_for_status()
-        print(f"Line 17: No-games alert posted to Slack")
-        
-    except Exception as e:
-        print(f"Line 18: Error posting no-games alert: {e}")
-        import traceback
-        traceback.print_exc()
 
 def post_weather_delay_alert(matchup, delay_reason, current_score=None, minute=None):
     """Post REAL-TIME weather delay alert with @channel tag."""
@@ -383,6 +256,7 @@ def post_weather_delay_alert(matchup, delay_reason, current_score=None, minute=N
         import traceback
         traceback.print_exc()
 
+
 def post_game_resuming_alert(matchup, current_score, minute):
     """Post REAL-TIME game resuming alert with @channel tag."""
     try:
@@ -433,6 +307,7 @@ def post_game_resuming_alert(matchup, current_score, minute):
         print(f"Line 24: Error posting game resuming alert: {e}")
         import traceback
         traceback.print_exc()
+
 
 def post_game_postponed_alert(matchup, postpone_reason):
     """Post REAL-TIME game postponed alert with @channel tag."""
@@ -485,19 +360,20 @@ def post_game_postponed_alert(matchup, postpone_reason):
         import traceback
         traceback.print_exc()
 
+
 def main():
     """Main function."""
     try:
         print("Line 0: Starting high_risk_alert.py")
         today_games = get_mls_games_for_date()
         
-        # NO GAMES SCHEDULED - POST OFF-DAY MESSAGE WITH NEXT MATCH INFO
+        # NO GAMES SCHEDULED - SKIP POSTING (off-day handled by weather_bot.py at 7 AM)
         if not today_games or len(today_games) == 0:
-            print("Line X: No games today - posting off-day message")
-            post_no_games_alert()
+            print("Line X: No games today - skipping high risk alert")
+            print("Line X: Off-day message already posted by weather_bot.py at 7 AM to #mls-gameday-weather")
             return
         
-        # GAMES EXIST - POST HIGH RISK ALERT (NO next match line on game days)
+        # GAMES EXIST - POST HIGH RISK ALERT
         print("Line Y: Games found - posting high risk alert")
         post_high_risk_alert(today_games)
     
@@ -505,6 +381,7 @@ def main():
         print(f"Line Z: Error: {e}")
         import traceback
         traceback.print_exc()
+
 
 if __name__ == '__main__':
     main()
