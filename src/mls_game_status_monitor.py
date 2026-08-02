@@ -1,7 +1,8 @@
 # mls_game_status_monitor.py
 # Real-Time Game Status Monitor for MLS
 # Checks every 5 minutes (10 AM - 10 PM PT) for game delays, postponements, and resumptions
-# Posts @channel alerts only when game state changes
+# Posts @channel alerts only when game state changes (delays, postponements, resumptions, suspensions)
+# DOES NOT post on off-days (off-day alerts handled by weather_bot.py at 7 AM)
 
 import os
 import json
@@ -318,7 +319,10 @@ def monitor_games():
     games = get_mls_game_status(today)
 
     if not games:
-        print("ℹ️  No games found for today")
+        print("ℹ️  No games found for today (off-day)")
+        print("ℹ️  Off-day alert handled by weather_bot.py at 7 AM")
+        # Still save empty state for tracking
+        save_game_states(current_states)
         return
 
     print(f"📅 Found {len(games)} game(s)")
