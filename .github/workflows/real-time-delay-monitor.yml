@@ -2,10 +2,10 @@ name: Real-Time Delay Monitor
 
 on:
   schedule:
-    # Every 5 minutes from 10:00 AM - 9:55 PM PT
-    # PT is UTC-7, so 10 AM PT = 5 PM UTC, 10 PM PT = 5 AM UTC next day
-    - cron: '*/5 17-23 * * *'  # 5 PM - 11:55 PM UTC (10 AM - 6:55 PM PT)
-    - cron: '*/5 0-4 * * *'    # 12 AM - 4:55 AM UTC (5 PM - 9:55 PM PT next day)
+    # Every 5 minutes from 5 PM - 11:55 PM UTC (10 AM - 6:55 PM PT)
+    - cron: '*/5 17-23 * * *'
+    # Every 5 minutes from 12 AM - 4:55 AM UTC (5 PM - 9:55 PM PT next day)
+    - cron: '*/5 0-4 * * *'
   workflow_dispatch:
 
 permissions:
@@ -16,17 +16,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      
+
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
-      
+
       - name: Monitor game delays and status changes
         env:
           SLACK_WEBHOOK_URL_HIGH_RISK: ${{ secrets.SLACK_WEBHOOK_URL_HIGH_RISK }}
-        run: cd src && python mls_game_status_monitor.py
+          OPENWEATHERMAP_API_KEY: ${{ secrets.OPENWEATHERMAP_API_KEY }}
+        run: python -m src.mls_game_status_monitor
