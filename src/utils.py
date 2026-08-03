@@ -9,7 +9,11 @@ OPENWEATHERMAP_API_KEY = os.getenv('OPENWEATHERMAP_API_KEY')
 NWS_POINTS_URL = 'https://api.weather.gov/points'
 NWS_FORECAST_URL = 'https://api.weather.gov/gridpoints'
 
-with open('config/mls_stadiums.json', 'r') as f:
+# Get the absolute path to config file
+script_dir = os.path.dirname(os.path.abspath(__file__))
+config_path = os.path.join(script_dir, '..', 'config', 'mls_stadiums.json')
+
+with open(config_path, 'r') as f:
     STADIUMS = json.load(f)
 
 def get_air_quality(lat, lon):
