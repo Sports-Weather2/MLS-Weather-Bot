@@ -29,4 +29,4 @@ jobs:
       - name: Monitor game delays and status changes
         env:
           SLACK_WEBHOOK_URL_HIGH_RISK: ${{ secrets.SLACK_WEBHOOK_URL_HIGH_RISK }}
-        run: python src/mls_game_status_monitor.py
+        run: cd src && python mls_game_status_monitor.py
