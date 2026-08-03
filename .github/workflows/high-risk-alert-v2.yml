@@ -25,4 +25,4 @@ jobs:
         env:
           SLACK_WEBHOOK_URL_HIGH_RISK: ${{ secrets.SLACK_WEBHOOK_URL_HIGH_RISK }}
           OPENWEATHERMAP_API_KEY: ${{ secrets.OPENWEATHERMAP_API_KEY }}
-        run: python -m src.high_risk_alert
+        run: python src/high_risk_alert.py
