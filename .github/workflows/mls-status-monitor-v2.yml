@@ -35,4 +35,4 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           OPENWEATHERMAP_API_KEY: ${{ secrets.OPENWEATHERMAP_API_KEY }}
-        run: python src/mls_status_monitor.py
+        run: python src/mls_game_status_monitor.py
