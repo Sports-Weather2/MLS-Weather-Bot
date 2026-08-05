@@ -91,33 +91,6 @@ def get_game_details(game, stadiums):
         print(f"Error extracting game details: {str(e)}")
         return None
 
-def format_game_line(details):
-    """Format single game line"""
-    if not details:
-        return None
-    
-    risk_emoji = "🔴" if details["risk_level"] == "HIGH RISK" else "🟡" if details["risk_level"] == "MONITOR" else "🟢"
-    
-    weather_str = ""
-    if details["weather"]:
-        temp = details["weather"].get("temperature", 0)
-        rain = details["weather"].get("precipProbability", 0)
-        wind = details["weather"].get("windSpeed", 0)
-        
-        if temp:
-            weather_str += f"{int(temp)}°F"
-        if rain:
-            weather_str += f" | {int(rain)}% rain"
-        if wind:
-            weather_str += f" | {int(wind)} mph wind"
-    
-    aqi_emoji = ""
-    if details["aqi_data"] and details["aqi_data"].get("aqi_level"):
-        aqi_category = get_aqi_category(details["aqi_data"]["aqi"])
-        aqi_emoji = f" {aqi_category['emoji']}"
-    
-    return f"{risk_emoji} *{details['away_team']}* @ *{details['home_team']}* | {details['time_pt'].strftime('%I:%M %p PT')} | {weather_str}{aqi_emoji}"
-
 def get_next_game_message(stadiums):
     """Get next scheduled game info"""
     try:
@@ -165,7 +138,7 @@ def get_next_game_message(stadiums):
         return None
 
 def main():
-    """Main function - dashboard format"""
+    """Main function - dashboard format with quick reference"""
     try:
         today = datetime.now(PT).date()
         date_str = today.strftime("%Y%m%d")
@@ -204,16 +177,17 @@ def main():
             if details:
                 game_details_list.append(details)
         
+        # Sort by time
+        game_details_list.sort(key=lambda x: x["time_pt"])
+        
         # Check if Leagues Cup day
         is_leagues_cup_day = any(is_leagues_cup_match(event) for event in all_events)
         
         # Determine header
         if is_leagues_cup_day:
             header = "🏆 *LEAGUES CUP - MLS vs LIGA MX*"
-            report_title = "⚽ *LEAGUES CUP WEATHER REPORT*"
         else:
             header = "⚽ *MLS DAILY WEATHER REPORT*"
-            report_title = "⚽ *MLS WEATHER REPORT*"
         
         # Build dashboard message
         if not game_details_list:
@@ -240,6 +214,13 @@ def main():
             message += f"🔴 High-Risk: {high_risk_count} games\n"
             message += f"🟡 Monitor: {monitor_count} games\n"
             message += f"🟢 Clear: {clear_count} games\n\n"
+            
+            # Quick Reference - Games Today
+            message += "📋 *GAMES TODAY (Quick Reference)*\n"
+            for i, game in enumerate(game_details_list, 1):
+                risk_emoji = "🔴" if game["risk_level"] == "HIGH RISK" else "🟡" if game["risk_level"] == "MONITOR" else "🟢"
+                message += f"{i}. {risk_emoji} *{game['away_team']}* @ *{game['home_team']}* | {game['time_pt'].strftime('%I:%M %p PT')}\n"
+            message += "\n"
             
             # Weather Summary
             message += "⛅ *WEATHER SUMMARY*\n"
