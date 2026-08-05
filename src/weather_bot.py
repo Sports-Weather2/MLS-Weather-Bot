@@ -14,6 +14,7 @@ from src.utils import (
 SLACK_WEBHOOK_URL = os.getenv('SLACK_WEBHOOK_URL')
 OPENWEATHERMAP_API_KEY = os.getenv('OPENWEATHERMAP_API_KEY')
 ESPN_MLS_SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard'
+ESPN_LEAGUES_CUP_SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.3/scoreboard'
 
 with open('config/mls_stadiums.json', 'r') as f:
     STADIUMS = json.load(f)
@@ -22,26 +23,52 @@ PT = pytz.timezone('America/Los_Angeles')
 
 
 def get_mls_games_for_date(target_date=None):
-    """Fetch MLS games for a specific date using ESPN dates parameter."""
+    """Fetch MLS games for a specific date using ESPN dates parameter (MLS regular season + Leagues Cup)."""
     try:
         if target_date is None:
             target_date = datetime.now(PT).date()
         
         date_str = target_date.strftime('%Y%m%d')
-        url = f"{ESPN_MLS_SCOREBOARD}?dates={date_str}"
+        all_games = []
         
-        print(f"Line 1: Fetching games for {date_str}: {url}")
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        # Fetch MLS regular season games
+        mls_url = f"{ESPN_MLS_SCOREBOARD}?dates={date_str}"
+        print(f"Line 1a: Fetching MLS games for {date_str}: {mls_url}")
         
-        if 'events' in data:
-            games = data['events']
-            print(f"Line 2: Found {len(games)} games on {date_str}")
-            return games
-        else:
-            print(f"Line 3: No 'events' key in response")
-            return []
+        try:
+            response = requests.get(mls_url, timeout=10)
+            response.raise_for_status()
+            mls_data = response.json()
+            
+            if 'events' in mls_data:
+                mls_games = mls_data['events']
+                print(f"Line 1b: Found {len(mls_games)} MLS games on {date_str}")
+                all_games.extend(mls_games)
+            else:
+                print(f"Line 1c: No 'events' key in MLS response")
+        except Exception as e:
+            print(f"Line 1d: Error fetching MLS games: {e}")
+        
+        # Fetch Leagues Cup games (only during Aug 4 - Sept 6, 2026)
+        leagues_cup_url = f"{ESPN_LEAGUES_CUP_SCOREBOARD}?dates={date_str}"
+        print(f"Line 2a: Fetching Leagues Cup games for {date_str}: {leagues_cup_url}")
+        
+        try:
+            response = requests.get(leagues_cup_url, timeout=10)
+            response.raise_for_status()
+            lc_data = response.json()
+            
+            if 'events' in lc_data:
+                lc_games = lc_data['events']
+                print(f"Line 2b: Found {len(lc_games)} Leagues Cup games on {date_str}")
+                all_games.extend(lc_games)
+            else:
+                print(f"Line 2c: No 'events' key in Leagues Cup response")
+        except Exception as e:
+            print(f"Line 2d: Error fetching Leagues Cup games: {e}")
+        
+        print(f"Line 2e: Total games (MLS + Leagues Cup): {len(all_games)}")
+        return all_games
     
     except Exception as e:
         print(f"Line 4: Error fetching games: {e}")
@@ -51,7 +78,7 @@ def get_mls_games_for_date(target_date=None):
 
 
 def get_next_scheduled_game():
-    """Find next scheduled game using competitors array."""
+    """Find next scheduled game using competitors array (MLS + Leagues Cup)."""
     try:
         tomorrow = datetime.now(PT).date() + timedelta(days=1)
         end_date = tomorrow + timedelta(days=13)
@@ -60,21 +87,43 @@ def get_next_scheduled_game():
         end_str = end_date.strftime('%Y%m%d')
         date_range = f"{start_str}-{end_str}"
         
-        url = f"{ESPN_MLS_SCOREBOARD}?dates={date_range}"
-        print(f"Line 5: Fetching next 14 days: {url}")
+        all_events = []
         
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        # Fetch MLS regular season games
+        mls_url = f"{ESPN_MLS_SCOREBOARD}?dates={date_range}"
+        print(f"Line 5a: Fetching next 14 days MLS: {mls_url}")
         
-        events = data.get('events', [])
-        print(f"Line 6: Total events in range: {len(events)}")
+        try:
+            response = requests.get(mls_url, timeout=10)
+            response.raise_for_status()
+            mls_data = response.json()
+            mls_events = mls_data.get('events', [])
+            print(f"Line 5b: Found {len(mls_events)} MLS events in range")
+            all_events.extend(mls_events)
+        except Exception as e:
+            print(f"Line 5c: Error fetching MLS games: {e}")
         
-        if not events:
+        # Fetch Leagues Cup games
+        lc_url = f"{ESPN_LEAGUES_CUP_SCOREBOARD}?dates={date_range}"
+        print(f"Line 6a: Fetching next 14 days Leagues Cup: {lc_url}")
+        
+        try:
+            response = requests.get(lc_url, timeout=10)
+            response.raise_for_status()
+            lc_data = response.json()
+            lc_events = lc_data.get('events', [])
+            print(f"Line 6b: Found {len(lc_events)} Leagues Cup events in range")
+            all_events.extend(lc_events)
+        except Exception as e:
+            print(f"Line 6c: Error fetching Leagues Cup games: {e}")
+        
+        print(f"Line 6: Total events in range: {len(all_events)}")
+        
+        if not all_events:
             print("Line 7: No events found")
             return None
         
-        for idx, event in enumerate(events):
+        for idx, event in enumerate(all_events):
             try:
                 if 'competitions' not in event:
                     continue
@@ -124,6 +173,20 @@ def get_next_scheduled_game():
         import traceback
         traceback.print_exc()
         return None
+
+
+def is_leagues_cup_match(competition):
+    """Check if competition is Leagues Cup (based on competition data)."""
+    try:
+        # Check competition name or ID for Leagues Cup
+        comp_name = competition.get('name', '').lower()
+        comp_uid = competition.get('uid', '').lower()
+        
+        if 'leagues cup' in comp_name or 'usa.3' in comp_uid:
+            return True
+        return False
+    except:
+        return False
 
 
 def post_no_games_message():
@@ -197,7 +260,7 @@ def post_no_games_message():
 
 
 def post_gameday_dashboard(games):
-    """Post gameday dashboard with summary overview."""
+    """Post gameday dashboard with summary overview (MLS + Leagues Cup)."""
     try:
         print(f"Line 13: Processing {len(games)} games for dashboard")
         
@@ -205,6 +268,7 @@ def post_gameday_dashboard(games):
         monitor_count = 0
         clear_count = 0
         
+        leagues_cup_count = 0  # Track Leagues Cup matches
         high_risk_games = []
         wind_concerns = []
         rain_concerns = []
@@ -250,10 +314,16 @@ def post_gameday_dashboard(games):
                     print(f"Line 14.{idx}g: Error parsing date {date_str}: {e}")
                     continue
                 
+                # Check if this is a Leagues Cup match
+                is_lc = is_leagues_cup_match(comp)
+                if is_lc:
+                    leagues_cup_count += 1
+                    print(f"Line 14.{idx}lc: ✅ Leagues Cup match detected")
+                
                 # Track earliest and latest games
                 if earliest_game is None:
-                    earliest_game = (away_team, home_team, game_time_pt)
-                latest_game = (away_team, home_team, game_time_pt)
+                    earliest_game = (away_team, home_team, game_time_pt, is_lc)
+                latest_game = (away_team, home_team, game_time_pt, is_lc)
                 
                 venue_name = comp.get('venue', {}).get('fullName', 'Unknown Stadium')
                 
@@ -320,13 +390,18 @@ def post_gameday_dashboard(games):
                 traceback.print_exc()
                 continue
         
-        print(f"\nLine 15: Successfully analyzed {len(games)} games")
+        print(f"\nLine 15: Successfully analyzed {len(games)} games ({leagues_cup_count} Leagues Cup)")
         
         total_games = high_risk_count + monitor_count + clear_count
         if total_games == 0:
             print("Line 16: No valid game data, posting no games message")
             post_no_games_message()
             return
+        
+        # Determine if this is a Leagues Cup day
+        leagues_cup_header = ""
+        if leagues_cup_count > 0:
+            leagues_cup_header = "🏆 LEAGUES CUP - MLS vs LIGA MX\n"
         
         # Build dashboard message
         blocks = [
@@ -338,7 +413,20 @@ def post_gameday_dashboard(games):
                     "emoji": True
                 }
             },
-            {"type": "divider"},
+            {"type": "divider"}
+        ]
+        
+        # Add Leagues Cup header if applicable
+        if leagues_cup_header:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": leagues_cup_header
+                }
+            })
+        
+        blocks.extend([
             {
                 "type": "section",
                 "text": {
@@ -361,7 +449,7 @@ def post_gameday_dashboard(games):
                     "text": "⛅ *WEATHER SUMMARY*"
                 }
             }
-        ]
+        ])
         
         # Weather summary
         weather_summary = ""
