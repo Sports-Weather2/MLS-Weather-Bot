@@ -239,14 +239,6 @@ def main():
             else:
                 message += f"⚠️ {unhealthy_aqi} stadiums with elevated AQI\n\n"
             
-            # Monitoring Window
-            message += "⏰ *MONITORING WINDOW*\n"
-            first_game_time = min(g["time_pt"] for g in game_details_list)
-            last_game_time = max(g["time_pt"] for g in game_details_list)
-            message += f"🎬 First game: {first_game_time.strftime('%I:%M %p PT')}\n"
-            message += f"🏁 Last game: {last_game_time.strftime('%I:%M %p PT')}\n"
-            message += f"🔴 Real-time monitoring: 10 AM - 10 PM PT\n\n"
-            
             # Action Items
             message += "✅ *ACTION ITEMS*\n"
             if high_risk_count > 0:
