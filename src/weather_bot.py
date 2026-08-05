@@ -239,15 +239,8 @@ def main():
             else:
                 message += f"⚠️ {unhealthy_aqi} stadiums with elevated AQI\n\n"
             
-            # Action Items
-            message += "✅ *ACTION ITEMS*\n"
-            if high_risk_count > 0:
-                message += f"• ⚠️ {high_risk_count} HIGH RISK games — review contingency plans\n"
-            else:
-                message += f"• ✅ No HIGH RISK games — standard scheduling\n"
-            
-            message += "• 📋 Have contingency plans ready for weather developments\n"
-            message += "• 🔔 Monitor real-time alerts during 10 AM - 10 PM PT window\n"
+            # Real-time monitoring note (informational only)
+            message += "🔔 Real-time monitoring active: 10 AM - 10 PM PT"
         
         post_to_slack(message)
         print("✅ Dashboard posted")
