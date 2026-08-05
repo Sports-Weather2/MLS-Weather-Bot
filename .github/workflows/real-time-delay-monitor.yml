@@ -4,8 +4,8 @@ on:
   schedule:
     # Every 5 minutes from 5 PM - 11:55 PM UTC (10 AM - 6:55 PM PT)
     - cron: '*/5 17-23 * * *'
-    # Every 5 minutes from 12 AM - 4:55 AM UTC (5 PM - 9:55 PM PT next day)
-    - cron: '*/5 0-4 * * *'
+    # Every 5 minutes from 12 AM - 5:55 AM UTC (5 PM - 10:55 PM PT next day)
+    - cron: '*/5 0-5 * * *'
   workflow_dispatch:
 
 permissions:
@@ -20,7 +20,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
