@@ -46,8 +46,8 @@ def post_to_slack(message):
         print(f"Error posting to Slack: {str(e)}")
         return False
 
-def format_game_message(game, stadiums):
-    """Format single game message with weather"""
+def get_game_details(game, stadiums):
+    """Extract game details"""
     try:
         competition = game.get("competitions", [{}])[0]
         competitors = competition.get("competitors", [])
@@ -58,7 +58,6 @@ def format_game_message(game, stadiums):
         home_team = competitors[0]["team"]["displayName"]
         away_team = competitors[1]["team"]["displayName"]
         
-        # Get game time
         game_time_str = competition.get("startDate", "")
         if not game_time_str:
             return None
@@ -69,59 +68,69 @@ def format_game_message(game, stadiums):
         except:
             return None
         
-        # Get stadium and weather
         stadium = get_stadium_by_team(stadiums, home_team)
         if not stadium:
             return None
         
         weather = get_weather_for_stadium(stadium)
-        if not weather:
-            return f"⚠️ *{away_team}* @ *{home_team}* | {game_time_pt.strftime('%I:%M %p PT')}"
+        risk_level, why_triggered = get_risk_level(weather, stadium) if weather else ("UNKNOWN", "")
         
-        # Get risk level
-        risk_level, why_triggered = get_risk_level(weather, stadium)
-        
-        # Get AQI
         aqi_data = get_air_quality(stadium["latitude"], stadium["longitude"])
-        aqi_emoji = ""
-        if aqi_data and aqi_data.get("aqi_level"):
-            aqi_category = get_aqi_category(aqi_data["aqi"])
-            aqi_emoji = f" {aqi_category['emoji']}"
         
-        # Risk indicator
-        risk_emoji = "🟢" if risk_level == "CLEAR" else "🟡" if risk_level == "MONITOR" else "🔴"
-        
-        # Weather summary
-        weather_summary = ""
-        if weather.get("temperature"):
-            weather_summary += f"{int(weather['temperature'])}°F"
-        if weather.get("precipProbability"):
-            weather_summary += f" | {int(weather['precipProbability'])}% rain"
-        if weather.get("windSpeed"):
-            weather_summary += f" | {int(weather['windSpeed'])} mph wind"
-        
-        return f"{risk_emoji} *{away_team}* @ *{home_team}* | {game_time_pt.strftime('%I:%M %p PT')} | {weather_summary}{aqi_emoji}"
-    
+        return {
+            "home_team": home_team,
+            "away_team": away_team,
+            "time_pt": game_time_pt,
+            "stadium": stadium,
+            "weather": weather,
+            "risk_level": risk_level,
+            "why_triggered": why_triggered,
+            "aqi_data": aqi_data
+        }
     except Exception as e:
-        print(f"Error formatting game: {str(e)}")
+        print(f"Error extracting game details: {str(e)}")
         return None
+
+def format_game_line(details):
+    """Format single game line"""
+    if not details:
+        return None
+    
+    risk_emoji = "🔴" if details["risk_level"] == "HIGH RISK" else "🟡" if details["risk_level"] == "MONITOR" else "🟢"
+    
+    weather_str = ""
+    if details["weather"]:
+        temp = details["weather"].get("temperature", 0)
+        rain = details["weather"].get("precipProbability", 0)
+        wind = details["weather"].get("windSpeed", 0)
+        
+        if temp:
+            weather_str += f"{int(temp)}°F"
+        if rain:
+            weather_str += f" | {int(rain)}% rain"
+        if wind:
+            weather_str += f" | {int(wind)} mph wind"
+    
+    aqi_emoji = ""
+    if details["aqi_data"] and details["aqi_data"].get("aqi_level"):
+        aqi_category = get_aqi_category(details["aqi_data"]["aqi"])
+        aqi_emoji = f" {aqi_category['emoji']}"
+    
+    return f"{risk_emoji} *{details['away_team']}* @ *{details['home_team']}* | {details['time_pt'].strftime('%I:%M %p PT')} | {weather_str}{aqi_emoji}"
 
 def get_next_game_message(stadiums):
     """Get next scheduled game info"""
     try:
-        # Check next 7 days
         for days_ahead in range(1, 8):
             check_date = datetime.now(PT).date() + timedelta(days=days_ahead)
             date_str = check_date.strftime("%Y%m%d")
             
-            # Fetch MLS games
             mls_response = requests.get(
                 f"{ESPN_MLS_SCOREBOARD}?dates={date_str}",
                 timeout=10
             )
             mls_data = mls_response.json() if mls_response.status_code == 200 else {"events": []}
             
-            # Fetch Leagues Cup games
             lc_response = requests.get(
                 f"{ESPN_LEAGUES_CUP_SCOREBOARD}?dates={date_str}",
                 timeout=10
@@ -144,7 +153,11 @@ def get_next_game_message(stadiums):
                         game_time = datetime.fromisoformat(game_time_str.replace("Z", "+00:00"))
                         game_time_pt = game_time.astimezone(PT)
                         
-                        return f"📍 *Next Match:* {away_team} @ {home_team}\n📅 {game_time_pt.strftime('%A, %B %d')} @ {game_time_pt.strftime('%I:%M %p PT')}"
+                        return {
+                            "away_team": away_team,
+                            "home_team": home_team,
+                            "time_pt": game_time_pt
+                        }
         
         return None
     except Exception as e:
@@ -152,7 +165,7 @@ def get_next_game_message(stadiums):
         return None
 
 def main():
-    """Main function"""
+    """Main function - dashboard format"""
     try:
         today = datetime.now(PT).date()
         date_str = today.strftime("%Y%m%d")
@@ -184,42 +197,87 @@ def main():
         # Combine events
         all_events = mls_data.get("events", []) + lc_data.get("events", [])
         
+        # Get game details for all games
+        game_details_list = []
+        for event in all_events:
+            details = get_game_details(event, stadiums)
+            if details:
+                game_details_list.append(details)
+        
         # Check if Leagues Cup day
         is_leagues_cup_day = any(is_leagues_cup_match(event) for event in all_events)
         
-        header = "🏆 LEAGUES CUP - MLS vs LIGA MX" if is_leagues_cup_day else "⚽ *MLS WEATHER REPORT*"
+        # Determine header
+        if is_leagues_cup_day:
+            header = "🏆 *LEAGUES CUP - MLS vs LIGA MX*"
+            report_title = "⚽ *LEAGUES CUP WEATHER REPORT*"
+        else:
+            header = "⚽ *MLS DAILY WEATHER REPORT*"
+            report_title = "⚽ *MLS WEATHER REPORT*"
         
-        # Build message
-        if not all_events:
-            # Off-day message
-            message = f"{header}\n\n📅 No games scheduled today\n\n"
+        # Build dashboard message
+        if not game_details_list:
+            # Off-day message (simplified)
+            message = f"{header}\n\n"
+            message += "📅 No games scheduled today\n\n"
             next_game = get_next_game_message(stadiums)
             if next_game:
-                message += next_game
+                message += f"📍 *Next Match:* {next_game['away_team']} @ {next_game['home_team']}\n"
+                message += f"📅 {next_game['time_pt'].strftime('%A, %B %d')} @ {next_game['time_pt'].strftime('%I:%M %p PT')}"
             else:
                 message += "No upcoming games found"
         else:
+            # Game day - Executive Dashboard
             message = f"{header}\n\n"
+            message += "📊 *TODAY'S OVERVIEW*\n"
             
-            game_count = len(all_events)
-            if game_count == 1:
-                # Single game
-                game_line = format_game_message(all_events[0], stadiums)
-                if game_line:
-                    message += f"🎬 *Match:* {game_line}\n"
+            # Count by risk level
+            high_risk_count = sum(1 for g in game_details_list if g["risk_level"] == "HIGH RISK")
+            monitor_count = sum(1 for g in game_details_list if g["risk_level"] == "MONITOR")
+            clear_count = sum(1 for g in game_details_list if g["risk_level"] == "CLEAR")
+            
+            message += f"🎬 Games Scheduled: {len(game_details_list)}\n"
+            message += f"🔴 High-Risk: {high_risk_count} games\n"
+            message += f"🟡 Monitor: {monitor_count} games\n"
+            message += f"🟢 Clear: {clear_count} games\n\n"
+            
+            # Weather Summary
+            message += "⛅ *WEATHER SUMMARY*\n"
+            rain_stadiums = sum(1 for g in game_details_list if g["weather"] and g["weather"].get("precipProbability", 0) >= 35)
+            wind_stadiums = sum(1 for g in game_details_list if g["weather"] and g["weather"].get("windSpeed", 0) >= 20)
+            
+            message += f"💧 Rain expected: {rain_stadiums} stadiums\n"
+            message += f"💨 Wind concerns: {wind_stadiums} stadiums (20+ mph)\n"
+            message += f"🌡️ Temperature: Range varies by region\n\n"
+            
+            # Air Quality Alert
+            message += "🌍 *AIR QUALITY ALERT*\n"
+            unhealthy_aqi = sum(1 for g in game_details_list if g["aqi_data"] and g["aqi_data"].get("aqi", 0) > 100)
+            if unhealthy_aqi == 0:
+                message += "✅ All stadiums have healthy air quality\n\n"
             else:
-                # Multiple games
-                message += f"📊 *Games Today ({game_count}):*\n"
-                for i, game in enumerate(all_events, 1):
-                    game_line = format_game_message(game, stadiums)
-                    if game_line:
-                        message += f"{i}. {game_line}\n"
+                message += f"⚠️ {unhealthy_aqi} stadiums with elevated AQI\n\n"
             
-            # Monitoring note
-            message += f"\n⏰ *Monitoring:* 10 AM - 10 PM PT"
+            # Monitoring Window
+            message += "⏰ *MONITORING WINDOW*\n"
+            first_game_time = min(g["time_pt"] for g in game_details_list)
+            last_game_time = max(g["time_pt"] for g in game_details_list)
+            message += f"🎬 First game: {first_game_time.strftime('%I:%M %p PT')}\n"
+            message += f"🏁 Last game: {last_game_time.strftime('%I:%M %p PT')}\n"
+            message += f"🔴 Real-time monitoring: 10 AM - 10 PM PT\n\n"
+            
+            # Action Items
+            message += "✅ *ACTION ITEMS*\n"
+            if high_risk_count > 0:
+                message += f"• ⚠️ {high_risk_count} HIGH RISK games — review contingency plans\n"
+            else:
+                message += f"• ✅ No HIGH RISK games — standard scheduling\n"
+            
+            message += "• 📋 Have contingency plans ready for weather developments\n"
+            message += "• 🔔 Monitor real-time alerts during 10 AM - 10 PM PT window\n"
         
         post_to_slack(message)
-        print("✅ Message posted")
+        print("✅ Dashboard posted")
         
     except Exception as e:
         print(f"❌ Main error: {str(e)}")
