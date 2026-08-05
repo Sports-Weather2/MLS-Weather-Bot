@@ -88,14 +88,6 @@
     "roof": false
   },
   {
-    "stadium": "MLS Stadium",
-    "latitude": 29.7589,
-    "longitude": -95.3677,
-    "country": "USA",
-    "teams": ["Houston Dynamo"],
-    "roof": true
-  },
-  {
     "stadium": "Shell Energy Stadium",
     "latitude": 29.7589,
     "longitude": -95.3677,
@@ -108,7 +100,7 @@
     "latitude": 34.0126,
     "longitude": -118.2408,
     "country": "USA",
-    "teams": ["Los Angeles FC"],
+    "teams": ["LAFC", "Los Angeles FC", "LA Football Club"],
     "roof": false
   },
   {
@@ -208,14 +200,6 @@
     "roof": false
   },
   {
-    "stadium": "Exploria Stadium",
-    "latitude": 28.6339,
-    "longitude": -81.3906,
-    "country": "USA",
-    "teams": ["Orlando City SC"],
-    "roof": false
-  },
-  {
     "stadium": "Citypark",
     "latitude": 38.6270,
     "longitude": -90.1994,
@@ -248,6 +232,14 @@
     "roof": false
   },
   {
+    "stadium": "Geodis Park",
+    "latitude": 36.1627,
+    "longitude": -86.8104,
+    "country": "USA",
+    "teams": ["Nashville SC"],
+    "roof": false
+  },
+  {
     "stadium": "Estadio Azteca",
     "latitude": 19.3032,
     "longitude": -99.1546,
@@ -276,7 +268,7 @@
     "latitude": 20.6340,
     "longitude": -103.4542,
     "country": "Mexico",
-    "teams": ["Club Guadalajara"],
+    "teams": ["Club Guadalajara", "Chivas Guadalajara", "Chivas"],
     "roof": false
   },
   {
@@ -340,7 +332,7 @@
     "latitude": 20.5764,
     "longitude": -100.3933,
     "country": "Mexico",
-    "teams": ["Club Querétaro"],
+    "teams": ["Club Querétaro", "Querétaro", "Bravos de Querétaro"],
     "roof": false
   },
   {
@@ -381,6 +373,14 @@
     "longitude": -99.1806,
     "country": "Mexico",
     "teams": ["Pumas UNAM"],
+    "roof": false
+  },
+  {
+    "stadium": "BMO Stadium",
+    "latitude": 34.0144,
+    "longitude": -118.2511,
+    "country": "USA",
+    "teams": ["LAFC"],
     "roof": false
   }
 ]
