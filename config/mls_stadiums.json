@@ -1,215 +1,386 @@
 [
   {
     "stadium": "Mercedes-Benz Stadium",
-    "latitude": 33.7549,
-    "longitude": -84.4008,
+    "latitude": 33.7505,
+    "longitude": -84.3888,
     "country": "USA",
     "teams": ["Atlanta United"],
-    "roof": true
-  },
-  {
-    "stadium": "Shell Energy Stadium",
-    "latitude": 29.7575,
-    "longitude": -95.3614,
-    "country": "USA",
-    "teams": ["Houston Dynamo"],
-    "roof": true
-  },
-  {
-    "stadium": "BC Place",
-    "latitude": 49.2766,
-    "longitude": -123.1112,
-    "country": "Canada",
-    "teams": ["Vancouver Whitecaps"],
-    "roof": true
-  },
-  {
-    "stadium": "BMO Field",
-    "latitude": 43.6629,
-    "longitude": -79.3957,
-    "country": "Canada",
-    "teams": ["Toronto FC"]
-  },
-  {
-    "stadium": "BMO Stadium",
-    "latitude": 34.0145,
-    "longitude": -118.2439,
-    "country": "USA",
-    "teams": ["LAFC"]
-  },
-  {
-    "stadium": "Dignity Health Sports Park",
-    "latitude": 34.0126,
-    "longitude": -118.2517,
-    "country": "USA",
-    "teams": ["LA Galaxy"]
-  },
-  {
-    "stadium": "Lumen Field",
-    "latitude": 47.5951,
-    "longitude": -122.3316,
-    "country": "USA",
-    "teams": ["Seattle Sounders"]
-  },
-  {
-    "stadium": "Providence Park",
-    "latitude": 45.5152,
-    "longitude": -122.7104,
-    "country": "USA",
-    "teams": ["Portland Timbers"]
-  },
-  {
-    "stadium": "PayPal Park",
-    "latitude": 37.3382,
-    "longitude": -121.9626,
-    "country": "USA",
-    "teams": ["San Jose Earthquakes"]
-  },
-  {
-    "stadium": "America First Field",
-    "latitude": 40.7683,
-    "longitude": -111.8910,
-    "country": "USA",
-    "teams": ["Real Salt Lake"]
+    "roof": false
   },
   {
     "stadium": "Dick's Sporting Goods Park",
-    "latitude": 39.7437,
-    "longitude": -104.8862,
+    "latitude": 39.8095,
+    "longitude": -104.8671,
     "country": "USA",
-    "teams": ["Colorado Rapids"]
-  },
-  {
-    "stadium": "Toyota Stadium",
-    "latitude": 33.0744,
-    "longitude": -96.8364,
-    "country": "USA",
-    "teams": ["FC Dallas"]
-  },
-  {
-    "stadium": "Children's Mercy Park",
-    "latitude": 39.0485,
-    "longitude": -94.4781,
-    "country": "USA",
-    "teams": ["Sporting Kansas City"]
-  },
-  {
-    "stadium": "Allianz Field",
-    "latitude": 44.9537,
-    "longitude": -93.2167,
-    "country": "USA",
-    "teams": ["Minnesota United"]
-  },
-  {
-    "stadium": "Soldier Field",
-    "latitude": 41.8319,
-    "longitude": -87.6167,
-    "country": "USA",
-    "teams": ["Chicago Fire FC"]
+    "teams": ["Colorado Rapids"],
+    "roof": false
   },
   {
     "stadium": "Lower.com Field",
     "latitude": 39.9612,
     "longitude": -82.9988,
     "country": "USA",
-    "teams": ["Columbus Crew"]
+    "teams": ["Columbus Crew"],
+    "roof": false
+  },
+  {
+    "stadium": "Toyota Stadium",
+    "latitude": 32.8343,
+    "longitude": -96.8383,
+    "country": "USA",
+    "teams": ["FC Dallas"],
+    "roof": false
+  },
+  {
+    "stadium": "Audi Field",
+    "latitude": 38.8034,
+    "longitude": -77.0245,
+    "country": "USA",
+    "teams": ["D.C. United"],
+    "roof": false
+  },
+  {
+    "stadium": "TQL Stadium",
+    "latitude": 39.0594,
+    "longitude": -84.5078,
+    "country": "USA",
+    "teams": ["FC Cincinnati"],
+    "roof": false
+  },
+  {
+    "stadium": "Inter&Co Stadium",
+    "latitude": 28.5421,
+    "longitude": -81.3723,
+    "country": "USA",
+    "teams": ["Orlando City SC"],
+    "roof": false
+  },
+  {
+    "stadium": "Subaru Park",
+    "latitude": 39.9012,
+    "longitude": -75.1844,
+    "country": "USA",
+    "teams": ["Philadelphia Union"],
+    "roof": false
+  },
+  {
+    "stadium": "Red Bull Arena",
+    "latitude": 40.7353,
+    "longitude": -74.0766,
+    "country": "USA",
+    "teams": ["New York Red Bulls"],
+    "roof": false
   },
   {
     "stadium": "Yankee Stadium",
     "latitude": 40.8296,
     "longitude": -73.9262,
     "country": "USA",
-    "teams": ["New York City FC"]
-  },
-  {
-    "stadium": "Red Bull Arena",
-    "latitude": 40.7352,
-    "longitude": -74.0771,
-    "country": "USA",
-    "teams": ["New York Red Bulls"]
-  },
-  {
-    "stadium": "Subaru Park",
-    "latitude": 39.8581,
-    "longitude": -75.3536,
-    "country": "USA",
-    "teams": ["Philadelphia Union"]
-  },
-  {
-    "stadium": "Audi Field",
-    "latitude": 38.8057,
-    "longitude": -77.0209,
-    "country": "USA",
-    "teams": ["D.C. United"]
+    "teams": ["New York City FC"],
+    "roof": false
   },
   {
     "stadium": "Gillette Stadium",
     "latitude": 42.0909,
     "longitude": -71.2643,
     "country": "USA",
-    "teams": ["New England Revolution"]
+    "teams": ["New England Revolution"],
+    "roof": false
   },
   {
-    "stadium": "Exploria Stadium",
-    "latitude": 28.5421,
-    "longitude": -81.3877,
+    "stadium": "MLS Stadium",
+    "latitude": 29.7589,
+    "longitude": -95.3677,
     "country": "USA",
-    "teams": ["Orlando City SC"]
+    "teams": ["Houston Dynamo"],
+    "roof": true
   },
   {
-    "stadium": "Hard Rock Stadium",
-    "latitude": 26.1582,
-    "longitude": -80.2510,
+    "stadium": "Shell Energy Stadium",
+    "latitude": 29.7589,
+    "longitude": -95.3677,
     "country": "USA",
-    "teams": ["Inter Miami CF"]
+    "teams": ["Houston Dynamo"],
+    "roof": true
   },
   {
-    "stadium": "Saputo Stadium",
-    "latitude": 45.4973,
-    "longitude": -73.5519,
-    "country": "Canada",
-    "teams": ["CF Montréal"]
-  },
-  {
-    "stadium": "CityPark",
-    "latitude": 38.6270,
-    "longitude": -90.1994,
+    "stadium": "LAFC Stadium",
+    "latitude": 34.0126,
+    "longitude": -118.2408,
     "country": "USA",
-    "teams": ["St. Louis City SC"]
+    "teams": ["Los Angeles FC"],
+    "roof": false
   },
   {
-    "stadium": "GEODIS Park",
-    "latitude": 36.1427,
-    "longitude": -86.7816,
+    "stadium": "SoFi Stadium",
+    "latitude": 33.9536,
+    "longitude": -118.3393,
     "country": "USA",
-    "teams": ["Nashville SC"]
+    "teams": ["LA Galaxy"],
+    "roof": true
   },
   {
-    "stadium": "Q2 Stadium",
-    "latitude": 30.3852,
-    "longitude": -97.7227,
+    "stadium": "Dignity Health Sports Park",
+    "latitude": 33.0811,
+    "longitude": -116.7584,
     "country": "USA",
-    "teams": ["Austin FC"]
+    "teams": ["San Jose Earthquakes"],
+    "roof": false
   },
   {
     "stadium": "Snapdragon Stadium",
     "latitude": 32.7157,
     "longitude": -117.1611,
     "country": "USA",
-    "teams": ["San Diego FC"]
+    "teams": ["San Diego FC"],
+    "roof": false
   },
   {
-    "stadium": "TQL Stadium",
-    "latitude": 39.0618,
-    "longitude": -84.5099,
+    "stadium": "Lumen Field",
+    "latitude": 47.5951,
+    "longitude": -122.3316,
     "country": "USA",
-    "teams": ["FC Cincinnati"]
+    "teams": ["Seattle Sounders"],
+    "roof": false
+  },
+  {
+    "stadium": "Providence Park",
+    "latitude": 45.5951,
+    "longitude": -122.7176,
+    "country": "USA",
+    "teams": ["Portland Timbers"],
+    "roof": false
+  },
+  {
+    "stadium": "Rio Tinto Stadium",
+    "latitude": 40.6766,
+    "longitude": -111.9148,
+    "country": "USA",
+    "teams": ["Real Salt Lake"],
+    "roof": false
+  },
+  {
+    "stadium": "Children's Mercy Park",
+    "latitude": 39.0505,
+    "longitude": -94.4789,
+    "country": "USA",
+    "teams": ["Sporting Kansas City"],
+    "roof": false
+  },
+  {
+    "stadium": "Allianz Field",
+    "latitude": 44.9524,
+    "longitude": -93.2846,
+    "country": "USA",
+    "teams": ["Minnesota United"],
+    "roof": false
+  },
+  {
+    "stadium": "Austin FC Stadium",
+    "latitude": 30.3898,
+    "longitude": -97.7221,
+    "country": "USA",
+    "teams": ["Austin FC"],
+    "roof": false
   },
   {
     "stadium": "Bank of America Stadium",
     "latitude": 35.2254,
-    "longitude": -80.8433,
+    "longitude": -80.8530,
     "country": "USA",
-    "teams": ["Charlotte FC"]
+    "teams": ["Charlotte FC"],
+    "roof": false
+  },
+  {
+    "stadium": "Soldier Field",
+    "latitude": 41.8625,
+    "longitude": -87.6170,
+    "country": "USA",
+    "teams": ["Chicago Fire FC"],
+    "roof": false
+  },
+  {
+    "stadium": "Inter Miami CF Stadium",
+    "latitude": 25.7577,
+    "longitude": -80.2197,
+    "country": "USA",
+    "teams": ["Inter Miami CF"],
+    "roof": false
+  },
+  {
+    "stadium": "Exploria Stadium",
+    "latitude": 28.6339,
+    "longitude": -81.3906,
+    "country": "USA",
+    "teams": ["Orlando City SC"],
+    "roof": false
+  },
+  {
+    "stadium": "Citypark",
+    "latitude": 38.6270,
+    "longitude": -90.1994,
+    "country": "USA",
+    "teams": ["Saint Louis City SC"],
+    "roof": false
+  },
+  {
+    "stadium": "BMO Field",
+    "latitude": 43.6629,
+    "longitude": -79.3957,
+    "country": "Canada",
+    "teams": ["Toronto FC"],
+    "roof": false
+  },
+  {
+    "stadium": "BC Place",
+    "latitude": 49.2827,
+    "longitude": -123.1107,
+    "country": "Canada",
+    "teams": ["Vancouver Whitecaps"],
+    "roof": true
+  },
+  {
+    "stadium": "Saputo Stadium",
+    "latitude": 45.4172,
+    "longitude": -73.5525,
+    "country": "Canada",
+    "teams": ["CF Montréal"],
+    "roof": false
+  },
+  {
+    "stadium": "Estadio Azteca",
+    "latitude": 19.3032,
+    "longitude": -99.1546,
+    "country": "Mexico",
+    "teams": ["Club América", "Cruz Azul"],
+    "roof": false
+  },
+  {
+    "stadium": "Estadio Jalisco",
+    "latitude": 20.6620,
+    "longitude": -103.3081,
+    "country": "Mexico",
+    "teams": ["Atlas FC"],
+    "roof": false
+  },
+  {
+    "stadium": "Estadio Libertad Financiera",
+    "latitude": 22.1505,
+    "longitude": -100.9855,
+    "country": "Mexico",
+    "teams": ["Atlético San Luis"],
+    "roof": false
+  },
+  {
+    "stadium": "Estadio Akron",
+    "latitude": 20.6340,
+    "longitude": -103.4542,
+    "country": "Mexico",
+    "teams": ["Club Guadalajara"],
+    "roof": false
+  },
+  {
+    "stadium": "Estadio Olímpico Benito Juárez",
+    "latitude": 31.7345,
+    "longitude": -106.4819,
+    "country": "Mexico",
+    "teams": ["FC Juárez"],
+    "roof": false
+  },
+  {
+    "stadium": "Estadio León",
+    "latitude": 20.9239,
+    "longitude": -101.6152,
+    "country": "Mexico",
+    "teams": ["Club León"],
+    "roof": false
+  },
+  {
+    "stadium": "Estadio El Encanto",
+    "latitude": 23.2185,
+    "longitude": -106.4156,
+    "country": "Mexico",
+    "teams": ["Mazatlán FC"],
+    "roof": false
+  },
+  {
+    "stadium": "Estadio BBVA",
+    "latitude": 25.6866,
+    "longitude": -100.2747,
+    "country": "Mexico",
+    "teams": ["CF Monterrey"],
+    "roof": false
+  },
+  {
+    "stadium": "Estadio Victoria",
+    "latitude": 21.8809,
+    "longitude": -102.2909,
+    "country": "Mexico",
+    "teams": ["Club Necaxa"],
+    "roof": false
+  },
+  {
+    "stadium": "Estadio Hidalgo",
+    "latitude": 20.1189,
+    "longitude": -98.7648,
+    "country": "Mexico",
+    "teams": ["CF Pachuca"],
+    "roof": false
+  },
+  {
+    "stadium": "Estadio Cuauhtémoc",
+    "latitude": 19.0344,
+    "longitude": -98.2077,
+    "country": "Mexico",
+    "teams": ["Club Puebla"],
+    "roof": false
+  },
+  {
+    "stadium": "Estadio Corregidora",
+    "latitude": 20.5764,
+    "longitude": -100.3933,
+    "country": "Mexico",
+    "teams": ["Club Querétaro"],
+    "roof": false
+  },
+  {
+    "stadium": "Estadio Corona",
+    "latitude": 25.5428,
+    "longitude": -103.4108,
+    "country": "Mexico",
+    "teams": ["Santos Laguna"],
+    "roof": false
+  },
+  {
+    "stadium": "Estadio Universitario",
+    "latitude": 25.6869,
+    "longitude": -100.3048,
+    "country": "Mexico",
+    "teams": ["Tigres UANL"],
+    "roof": false
+  },
+  {
+    "stadium": "Estadio Caliente",
+    "latitude": 32.5149,
+    "longitude": -116.9689,
+    "country": "Mexico",
+    "teams": ["Club Tijuana"],
+    "roof": false
+  },
+  {
+    "stadium": "Estadio Nemesio Díez",
+    "latitude": 19.2806,
+    "longitude": -99.6544,
+    "country": "Mexico",
+    "teams": ["Toluca FC"],
+    "roof": false
+  },
+  {
+    "stadium": "Estadio Olímpico Universitario",
+    "latitude": 19.3050,
+    "longitude": -99.1806,
+    "country": "Mexico",
+    "teams": ["Pumas UNAM"],
+    "roof": false
   }
 ]
