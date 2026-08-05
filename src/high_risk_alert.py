@@ -1,389 +1,203 @@
-# high_risk_alert.py
-# Updated: August 2, 2026
-# Real-Time High-Risk Weather Alerts for MLS
-# Posts HIGH RISK games at 10 AM on game days only
-# Posts real-time alerts for delays, postponements, resumptions, suspensions with @channel tag
-# DOES NOT post on off-days (off-day alerts handled by weather_bot.py at 7 AM)
-
 import os
-import requests
 import json
+import requests
 from datetime import datetime, timedelta
 import pytz
-from src.utils import (
-    get_weather_for_stadium,
-    get_risk_level,
-    get_delay_probability,
-    get_air_quality,
-    get_aqi_category,
-)
+from src.utils import get_weather_for_stadium, get_risk_level, get_air_quality, get_aqi_category
 
-SLACK_WEBHOOK_URL_HIGH_RISK = os.getenv('SLACK_WEBHOOK_URL_HIGH_RISK')
-OPENWEATHERMAP_API_KEY = os.getenv('OPENWEATHERMAP_API_KEY')
-ESPN_MLS_SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard'
+# ESPN API endpoints
+ESPN_MLS_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard"
+ESPN_LEAGUES_CUP_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer/concacaf.leagues.cup/scoreboard"
 
-with open('config/mls_stadiums.json', 'r') as f:
-    STADIUMS = json.load(f)
+# Slack webhook
+SLACK_WEBHOOK_URL_HIGH_RISK = os.getenv("SLACK_WEBHOOK_URL_HIGH_RISK")
 
-PT = pytz.timezone('America/Los_Angeles')
+# PT timezone
+PT = pytz.timezone("America/Los_Angeles")
 
+def load_stadiums():
+    """Load stadium configuration"""
+    config_path = os.path.join(os.path.dirname(__file__), "..", "config", "mls_stadiums.json")
+    with open(config_path, "r") as f:
+        return json.load(f)
 
-def get_mls_games_for_date(target_date=None):
-    """Fetch MLS games for a specific date using ESPN dates parameter."""
+def get_stadium_by_team(stadiums, team_name):
+    """Find stadium by team name"""
+    for stadium in stadiums:
+        if any(team_name.lower() in t.lower() for t in stadium.get("teams", [])):
+            return stadium
+    return None
+
+def is_leagues_cup_match(event):
+    """Check if match is Leagues Cup"""
+    if not event or "competitions" not in event:
+        return False
+    competition = event.get("competitions", [{}])[0]
+    comp_name = competition.get("name", "").lower()
+    return "leagues cup" in comp_name
+
+def post_to_slack(message):
+    """Post message to Slack"""
+    payload = {"text": message}
     try:
-        if target_date is None:
-            target_date = datetime.now(PT).date()
-        
-        date_str = target_date.strftime('%Y%m%d')
-        url = f"{ESPN_MLS_SCOREBOARD}?dates={date_str}"
-        
-        print(f"Line 1: Fetching games for {date_str}: {url}")
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
-        if 'events' in data:
-            games = data['events']
-            print(f"Line 2: Found {len(games)} games on {date_str}")
-            return games
-        else:
-            print(f"Line 3: No 'events' key in response")
-            return []
-    
+        response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=payload)
+        return response.status_code == 200
     except Exception as e:
-        print(f"Line 4: Error fetching games: {e}")
-        import traceback
-        traceback.print_exc()
-        return []
+        print(f"Error posting to Slack: {str(e)}")
+        return False
 
-
-def post_high_risk_alert(games):
-    """Post HIGH RISK games or All Clear message. GAME DAY VERSION (1+ games)."""
+def get_game_details(game, stadiums):
+    """Extract game details"""
     try:
-        print(f"Line 11: Processing {len(games)} games for high risk alert")
+        competition = game.get("competitions", [{}])[0]
+        competitors = competition.get("competitors", [])
         
-        high_risk_games = []
-        total_games = 0
+        if len(competitors) < 2:
+            return None
         
-        for idx, game in enumerate(games):
-            try:
-                print(f"Line 12.{idx}: Processing game...")
-                
-                if not isinstance(game, dict) or 'competitions' not in game:
-                    continue
-                
-                comp = game['competitions'][0]
-                competitors = comp.get('competitors', [])
-                
-                if not competitors or len(competitors) < 2:
-                    continue
-                
-                home_competitor = next((c for c in competitors if c.get('homeAway') == 'home'), None)
-                away_competitor = next((c for c in competitors if c.get('homeAway') == 'away'), None)
-                
-                if not home_competitor or not away_competitor:
-                    continue
-                
-                home_team = home_competitor.get('team', {}).get('displayName', '')
-                away_team = away_competitor.get('team', {}).get('displayName', '')
-                
-                if not home_team or not away_team:
-                    continue
-                
-                date_str = game.get('date', '')
-                if not date_str:
-                    continue
-                
-                try:
-                    game_date_utc = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                    game_date_pt = game_date_utc.astimezone(PT)
-                    game_time_pt = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
-                except Exception as e:
-                    print(f"Line 12.{idx}g: Error parsing date {date_str}: {e}")
-                    continue
-                
-                venue_name = comp.get('venue', {}).get('fullName', 'Unknown Stadium')
-                
-                stadium_config = next((s for s in STADIUMS if s['stadium'] == venue_name), None)
-                
-                if not stadium_config:
-                    stadium_config = next((s for s in STADIUMS if home_team in s.get('teams', [])), None)
-                    if not stadium_config:
-                        continue
-                
-                weather = get_weather_for_stadium(stadium_config)
-                if not weather:
-                    continue
-                
-                risk_level, why_triggered = get_risk_level(weather, stadium_config)
-                
-                total_games += 1
-                
-                if risk_level == 'HIGH RISK':
-                    high_risk_games.append({
-                        'matchup': f"{away_team} @ {home_team}",
-                        'time': game_time_pt,
-                        'reason': why_triggered
-                    })
-                
-                print(f"Line 12.{idx}z: ✅ Processed: {away_team} @ {home_team} - {risk_level}")
-            
-            except Exception as e:
-                print(f"Line 12.{idx}ERROR: {e}")
-                import traceback
-                traceback.print_exc()
-                continue
+        home_team = competitors[0]["team"]["displayName"]
+        away_team = competitors[1]["team"]["displayName"]
         
-        print(f"\nLine 13: Found {len(high_risk_games)} HIGH RISK games out of {total_games} total")
+        game_time_str = competition.get("startDate", "")
+        if not game_time_str:
+            return None
         
-        # Build alert message
-        blocks = [
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": "⚽ MLS High Risk Alert",
-                    "emoji": True
-                }
-            },
-            {"type": "divider"}
-        ]
+        try:
+            game_time = datetime.fromisoformat(game_time_str.replace("Z", "+00:00"))
+            game_time_pt = game_time.astimezone(PT)
+        except:
+            return None
         
-        if high_risk_games:
-            # HIGH RISK GAMES FOUND
-            alert_text = "🔴 *HIGH RISK GAMES*\n\n"
-            for game in high_risk_games:
-                alert_text += f"🎬 *{game['matchup']}* ({game['time']})\n"
-                alert_text += f"⚠️ {game['reason']}\n\n"
-            
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": alert_text
-                }
-            })
+        stadium = get_stadium_by_team(stadiums, home_team)
+        if not stadium:
+            return None
         
-        else:
-            # ALL CLEAR - GAME DAY (1+ games, but no HIGH RISK)
-            alert_text = f"🟢 *All Clear*\n\nAll {total_games} games today have favorable conditions\nNo high-risk weather or air quality concerns detected"
-            
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": alert_text
-                }
-            })
+        weather = get_weather_for_stadium(stadium)
+        risk_level, why_triggered = get_risk_level(weather, stadium) if weather else ("UNKNOWN", "")
         
-        # NO "Next Match" line on game days - colleagues already saw games in 7 AM dashboard
+        aqi_data = get_air_quality(stadium["latitude"], stadium["longitude"])
         
-        blocks.append({"type": "divider"})
-        blocks.append({
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
-                }
-            ]
-        })
-        
-        message = {"blocks": blocks}
-        response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=message, timeout=10)
-        response.raise_for_status()
-        print(f"Line 14: High risk alert posted to Slack")
-        
+        return {
+            "home_team": home_team,
+            "away_team": away_team,
+            "time_pt": game_time_pt,
+            "stadium": stadium,
+            "weather": weather,
+            "risk_level": risk_level,
+            "why_triggered": why_triggered,
+            "aqi_data": aqi_data
+        }
     except Exception as e:
-        print(f"Line 15: Error posting high risk alert: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-def post_weather_delay_alert(matchup, delay_reason, current_score=None, minute=None):
-    """Post REAL-TIME weather delay alert with @channel tag."""
-    try:
-        print(f"Line 19: Posting WEATHER DELAY alert for {matchup}")
-        
-        # Build alert text with @channel tag
-        alert_text = "@channel\n\n🚨 *WEATHER DELAY DETECTED*\n\n"
-        alert_text += f"🎬 {matchup}\n"
-        alert_text += f"⏸️ Kickoff DELAYED\n"
-        alert_text += f"🌩️ Reason: {delay_reason}\n"
-        
-        if current_score and minute:
-            alert_text += f"📊 Score: {current_score} | {minute}'\n"
-        
-        alert_text += f"⏱️ Expected update: 15-30 minutes\n\n"
-        alert_text += "Status: Monitoring weather — will resume when safe"
-        
-        blocks = [
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": "⚽ MLS High Risk Alert",
-                    "emoji": True
-                }
-            },
-            {"type": "divider"},
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": alert_text
-                }
-            },
-            {"type": "divider"},
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
-                    }
-                ]
-            }
-        ]
-        
-        message = {"blocks": blocks}
-        response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=message, timeout=10)
-        response.raise_for_status()
-        print(f"Line 20: Weather delay alert posted with @channel tag")
-        
-    except Exception as e:
-        print(f"Line 21: Error posting weather delay alert: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-def post_game_resuming_alert(matchup, current_score, minute):
-    """Post REAL-TIME game resuming alert with @channel tag."""
-    try:
-        print(f"Line 22: Posting GAME RESUMING alert for {matchup}")
-        
-        # Build alert text with @channel tag
-        alert_text = "@channel\n\n✅ *GAME RESUMING*\n\n"
-        alert_text += f"🎬 {matchup}\n"
-        alert_text += f"⚽ Play resuming now\n"
-        alert_text += f"📊 Current score: {current_score} | {minute}'\n\n"
-        alert_text += "Status: Game proceeding"
-        
-        blocks = [
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": "⚽ MLS High Risk Alert",
-                    "emoji": True
-                }
-            },
-            {"type": "divider"},
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": alert_text
-                }
-            },
-            {"type": "divider"},
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
-                    }
-                ]
-            }
-        ]
-        
-        message = {"blocks": blocks}
-        response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=message, timeout=10)
-        response.raise_for_status()
-        print(f"Line 23: Game resuming alert posted with @channel tag")
-        
-    except Exception as e:
-        print(f"Line 24: Error posting game resuming alert: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-def post_game_postponed_alert(matchup, postpone_reason):
-    """Post REAL-TIME game postponed alert with @channel tag."""
-    try:
-        print(f"Line 25: Posting GAME POSTPONED alert for {matchup}")
-        
-        # Build alert text with @channel tag
-        alert_text = "@channel\n\n📅 *GAME POSTPONED*\n\n"
-        alert_text += f"🎬 {matchup}\n"
-        alert_text += f"❌ Match cancelled\n"
-        alert_text += f"🌧️ Reason: {postpone_reason}\n\n"
-        alert_text += "🗓️ Reschedule: TBD — League will announce new date/time"
-        
-        blocks = [
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": "⚽ MLS High Risk Alert",
-                    "emoji": True
-                }
-            },
-            {"type": "divider"},
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": alert_text
-                }
-            },
-            {"type": "divider"},
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
-                    }
-                ]
-            }
-        ]
-        
-        message = {"blocks": blocks}
-        response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=message, timeout=10)
-        response.raise_for_status()
-        print(f"Line 26: Game postponed alert posted with @channel tag")
-        
-    except Exception as e:
-        print(f"Line 27: Error posting game postponed alert: {e}")
-        import traceback
-        traceback.print_exc()
-
+        print(f"Error extracting game details: {str(e)}")
+        return None
 
 def main():
-    """Main function."""
+    """Main function - HIGH RISK alerts only"""
     try:
-        print("Line 0: Starting high_risk_alert.py")
-        today_games = get_mls_games_for_date()
+        today = datetime.now(PT).date()
+        date_str = today.strftime("%Y%m%d")
         
-        # NO GAMES SCHEDULED - SKIP POSTING (off-day handled by weather_bot.py at 7 AM)
-        if not today_games or len(today_games) == 0:
-            print("Line X: No games today - skipping high risk alert")
-            print("Line X: Off-day message already posted by weather_bot.py at 7 AM to #mls-gameday-weather")
+        stadiums = load_stadiums()
+        
+        # Fetch MLS games
+        try:
+            mls_response = requests.get(
+                f"{ESPN_MLS_SCOREBOARD}?dates={date_str}",
+                timeout=10
+            )
+            mls_data = mls_response.json() if mls_response.status_code == 200 else {"events": []}
+        except Exception as e:
+            print(f"MLS API Error: {str(e)}")
+            mls_data = {"events": []}
+        
+        # Fetch Leagues Cup games
+        try:
+            lc_response = requests.get(
+                f"{ESPN_LEAGUES_CUP_SCOREBOARD}?dates={date_str}",
+                timeout=10
+            )
+            lc_data = lc_response.json() if lc_response.status_code == 200 else {"events": []}
+        except Exception as e:
+            print(f"Leagues Cup API Error: {str(e)}")
+            lc_data = {"events": []}
+        
+        # Combine events
+        all_events = mls_data.get("events", []) + lc_data.get("events", [])
+        
+        # Get game details for all games
+        game_details_list = []
+        for event in all_events:
+            details = get_game_details(event, stadiums)
+            if details:
+                game_details_list.append(details)
+        
+        # Filter for HIGH RISK games only
+        high_risk_games = [g for g in game_details_list if g["risk_level"] == "HIGH RISK"]
+        
+        # If no high risk games, post off-day message and exit
+        if not high_risk_games:
+            print("✅ No HIGH RISK games today — silent")
             return
         
-        # GAMES EXIST - POST HIGH RISK ALERT
-        print("Line Y: Games found - posting high risk alert")
-        post_high_risk_alert(today_games)
-    
+        # Check if Leagues Cup day
+        is_leagues_cup_day = any(is_leagues_cup_match(event) for event in all_events)
+        
+        # Determine header
+        if is_leagues_cup_day:
+            header = "🏆 *LEAGUES CUP - MLS vs LIGA MX*"
+        else:
+            header = "⚽ *MLS WEATHER ALERT*"
+        
+        # Build HIGH RISK alert message
+        message = f"{header}\n\n"
+        message += f"🔴 *HIGH RISK WEATHER - {len(high_risk_games)} GAME(S)*\n\n"
+        
+        # List each high risk game
+        for i, game in enumerate(high_risk_games, 1):
+            message += f"*Game {i}: {game['away_team']} @ {game['home_team']}*\n"
+            message += f"⏰ {game['time_pt'].strftime('%I:%M %p PT')}\n"
+            message += f"📍 {game['stadium']['stadium']}\n\n"
+            
+            # Weather details
+            if game["weather"]:
+                message += "🌦️ *Weather Conditions:*\n"
+                temp = game["weather"].get("temperature", 0)
+                rain = game["weather"].get("precipProbability", 0)
+                wind = game["weather"].get("windSpeed", 0)
+                
+                if temp:
+                    message += f"   🌡️ Temperature: {int(temp)}°F\n"
+                if rain:
+                    message += f"   💧 Rain Probability: {int(rain)}%\n"
+                if wind:
+                    message += f"   💨 Wind Speed: {int(wind)} mph\n"
+                
+                # AQI
+                if game["aqi_data"]:
+                    aqi = game["aqi_data"].get("aqi", 0)
+                    aqi_level = game["aqi_data"].get("aqi_level", "Unknown")
+                    if aqi > 100:
+                        message += f"   🌍 Air Quality: {aqi_level} (AQI {aqi})\n"
+                
+                message += "\n"
+            
+            # Why triggered
+            if game["why_triggered"]:
+                message += f"⚠️ *Why Triggered:* {game['why_triggered']}\n\n"
+        
+        # Action items for high risk
+        message += "✅ *ACTION REQUIRED:*\n"
+        message += "• 📞 Contact venue operations immediately\n"
+        message += "• 🚨 Prepare contingency plans (delay/postponement/relocation)\n"
+        message += "• 📱 Alert broadcast partners and media\n"
+        message += "• ⏳ Monitor real-time updates — decision window opens 2 hours before kickoff\n"
+        
+        post_to_slack(message)
+        print(f"✅ HIGH RISK alert posted for {len(high_risk_games)} game(s)")
+        
     except Exception as e:
-        print(f"Line Z: Error: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Main error: {str(e)}")
+        post_to_slack(f"❌ High Risk Alert Error: {str(e)}")
 
-
-if __name__ == '__main__':
-    main()
-else:
+if __name__ == "__main__":
     main()
