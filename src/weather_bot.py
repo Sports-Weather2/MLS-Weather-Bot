@@ -1,614 +1,202 @@
 import os
-import requests
 import json
+import requests
 from datetime import datetime, timedelta
 import pytz
-from src.utils import (
-    get_weather_for_stadium,
-    get_risk_level,
-    get_delay_probability,
-    get_air_quality,
-    get_aqi_category,
-)
+from src.utils import get_weather_for_stadium, get_risk_level, get_air_quality, get_aqi_category
 
-SLACK_WEBHOOK_URL = os.getenv('SLACK_WEBHOOK_URL')
-OPENWEATHERMAP_API_KEY = os.getenv('OPENWEATHERMAP_API_KEY')
-ESPN_MLS_SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard'
-ESPN_LEAGUES_CUP_SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.3/scoreboard'
+# ESPN API endpoints
+ESPN_MLS_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard"
+ESPN_LEAGUES_CUP_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer/concacaf.leagues.cup/scoreboard"
 
-with open('config/mls_stadiums.json', 'r') as f:
-    STADIUMS = json.load(f)
+# Slack webhook
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 
-PT = pytz.timezone('America/Los_Angeles')
-
-
-def get_mls_games_for_date(target_date=None):
-    """Fetch MLS games for a specific date using ESPN dates parameter (MLS regular season + Leagues Cup)."""
-    try:
-        if target_date is None:
-            target_date = datetime.now(PT).date()
-        
-        date_str = target_date.strftime('%Y%m%d')
-        all_games = []
-        
-        # Fetch MLS regular season games
-        mls_url = f"{ESPN_MLS_SCOREBOARD}?dates={date_str}"
-        print(f"Line 1a: Fetching MLS games for {date_str}: {mls_url}")
-        
-        try:
-            response = requests.get(mls_url, timeout=10)
-            response.raise_for_status()
-            mls_data = response.json()
-            
-            if 'events' in mls_data:
-                mls_games = mls_data['events']
-                print(f"Line 1b: Found {len(mls_games)} MLS games on {date_str}")
-                all_games.extend(mls_games)
-            else:
-                print(f"Line 1c: No 'events' key in MLS response")
-        except Exception as e:
-            print(f"Line 1d: Error fetching MLS games: {e}")
-        
-        # Fetch Leagues Cup games (only during Aug 4 - Sept 6, 2026)
-        leagues_cup_url = f"{ESPN_LEAGUES_CUP_SCOREBOARD}?dates={date_str}"
-        print(f"Line 2a: Fetching Leagues Cup games for {date_str}: {leagues_cup_url}")
-        
-        try:
-            response = requests.get(leagues_cup_url, timeout=10)
-            response.raise_for_status()
-            lc_data = response.json()
-            
-            if 'events' in lc_data:
-                lc_games = lc_data['events']
-                print(f"Line 2b: Found {len(lc_games)} Leagues Cup games on {date_str}")
-                all_games.extend(lc_games)
-            else:
-                print(f"Line 2c: No 'events' key in Leagues Cup response")
-        except Exception as e:
-            print(f"Line 2d: Error fetching Leagues Cup games: {e}")
-        
-        print(f"Line 2e: Total games (MLS + Leagues Cup): {len(all_games)}")
-        return all_games
-    
-    except Exception as e:
-        print(f"Line 4: Error fetching games: {e}")
-        import traceback
-        traceback.print_exc()
-        return []
-
-
-def get_next_scheduled_game():
-    """Find next scheduled game using competitors array (MLS + Leagues Cup)."""
-    try:
-        tomorrow = datetime.now(PT).date() + timedelta(days=1)
-        end_date = tomorrow + timedelta(days=13)
-        
-        start_str = tomorrow.strftime('%Y%m%d')
-        end_str = end_date.strftime('%Y%m%d')
-        date_range = f"{start_str}-{end_str}"
-        
-        all_events = []
-        
-        # Fetch MLS regular season games
-        mls_url = f"{ESPN_MLS_SCOREBOARD}?dates={date_range}"
-        print(f"Line 5a: Fetching next 14 days MLS: {mls_url}")
-        
-        try:
-            response = requests.get(mls_url, timeout=10)
-            response.raise_for_status()
-            mls_data = response.json()
-            mls_events = mls_data.get('events', [])
-            print(f"Line 5b: Found {len(mls_events)} MLS events in range")
-            all_events.extend(mls_events)
-        except Exception as e:
-            print(f"Line 5c: Error fetching MLS games: {e}")
-        
-        # Fetch Leagues Cup games
-        lc_url = f"{ESPN_LEAGUES_CUP_SCOREBOARD}?dates={date_range}"
-        print(f"Line 6a: Fetching next 14 days Leagues Cup: {lc_url}")
-        
-        try:
-            response = requests.get(lc_url, timeout=10)
-            response.raise_for_status()
-            lc_data = response.json()
-            lc_events = lc_data.get('events', [])
-            print(f"Line 6b: Found {len(lc_events)} Leagues Cup events in range")
-            all_events.extend(lc_events)
-        except Exception as e:
-            print(f"Line 6c: Error fetching Leagues Cup games: {e}")
-        
-        print(f"Line 6: Total events in range: {len(all_events)}")
-        
-        if not all_events:
-            print("Line 7: No events found")
-            return None
-        
-        for idx, event in enumerate(all_events):
-            try:
-                if 'competitions' not in event:
-                    continue
-                
-                comp = event['competitions'][0]
-                competitors = comp.get('competitors', [])
-                
-                home_competitor = next((c for c in competitors if c.get('homeAway') == 'home'), None)
-                away_competitor = next((c for c in competitors if c.get('homeAway') == 'away'), None)
-                
-                if not home_competitor or not away_competitor:
-                    continue
-                
-                home_team = home_competitor.get('team', {}).get('displayName', '')
-                away_team = away_competitor.get('team', {}).get('displayName', '')
-                
-                if not home_team or not away_team:
-                    continue
-                
-                date_str = event.get('date', '')
-                if not date_str:
-                    continue
-                
-                game_date_utc = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                game_date_pt = game_date_utc.astimezone(PT)
-                
-                formatted_date = game_date_pt.strftime('%A, %B %d')
-                formatted_time = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
-                
-                print(f"Line 8: Found valid game: {away_team} @ {home_team}")
-                
-                return {
-                    'date': formatted_date,
-                    'time': formatted_time,
-                    'home_team': home_team,
-                    'away_team': away_team
-                }
-            
-            except Exception as e:
-                continue
-        
-        print("Line 9: No valid games found after checking all events")
-        return None
-    
-    except Exception as e:
-        print(f"Line 10: Error: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
-
+# PT timezone
+PT = pytz.timezone("America/Los_Angeles")
 
 def is_leagues_cup_match(competition):
-    """Check if competition is Leagues Cup (based on competition data)."""
-    try:
-        # Check competition name or ID for Leagues Cup
-        comp_name = competition.get('name', '').lower()
-        comp_uid = competition.get('uid', '').lower()
-        
-        if 'leagues cup' in comp_name or 'usa.3' in comp_uid:
-            return True
+    """Check if a match is a Leagues Cup game"""
+    if not competition:
         return False
-    except:
-        return False
+    comp_name = competition.get("name", "").lower()
+    comp_uid = competition.get("uid", "").lower()
+    return "leagues cup" in comp_name or "usa.3" in comp_uid or "concacaf.leagues.cup" in comp_uid
 
+def load_stadiums():
+    """Load stadium configuration from mls_stadiums.json"""
+    config_path = os.path.join(os.path.dirname(__file__), "..", "config", "mls_stadiums.json")
+    with open(config_path, "r") as f:
+        return json.load(f)
 
-def post_no_games_message():
-    """Post All Clear message for NO-GAMES DAYS with next match info to #mls-gameday-weather."""
+def get_stadium_by_team(stadiums, team_name):
+    """Find stadium configuration by team name"""
+    for stadium in stadiums:
+        if any(team_name.lower() in t.lower() for t in stadium.get("teams", [])):
+            return stadium
+    return None
+
+def post_to_slack(message):
+    """Post message to Slack"""
+    payload = {"text": message}
+    response = requests.post(SLACK_WEBHOOK_URL, json=payload)
+    return response.status_code == 200
+
+def format_game_message(game, stadiums):
+    """Format a single game with weather and risk info"""
     try:
-        print("Line 16: No games today - posting off-day message to #mls-gameday-weather")
+        # Extract game info
+        competition = game.get("competitions", [{}])[0]
+        competitors = competition.get("competitors", [])
         
-        next_game = get_next_scheduled_game()
+        home_team = competitors[0]["team"]["displayName"] if len(competitors) > 0 else "Unknown"
+        away_team = competitors[1]["team"]["displayName"] if len(competitors) > 1 else "Unknown"
         
-        blocks = [
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": "⚽ MLS Daily Weather Report",
-                    "emoji": True
-                }
-            },
-            {"type": "divider"},
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "✅ *No games scheduled today*"
-                }
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "MLS Weather Bot is monitoring and will alert on the next game day."
-                }
-            },
-            {"type": "divider"}
-        ]
-        
-        # ONLY show next match on no-games days
-        if next_game:
-            next_match_text = f"🏟️ *Next Match:* {next_game['away_team']} @ {next_game['home_team']}\n{next_game['date']} @ {next_game['time']}"
+        # Get time
+        game_time_str = competition.get("startDate", "")
+        if game_time_str:
+            game_time = datetime.fromisoformat(game_time_str.replace("Z", "+00:00"))
+            game_time_pt = game_time.astimezone(PT)
         else:
-            next_match_text = "🏟️ *Next Match:* TBD"
+            return None
         
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": next_match_text
-            }
-        })
+        # Get stadium
+        stadium = get_stadium_by_team(stadiums, home_team)
+        if not stadium:
+            return None
         
-        blocks.append({"type": "divider"})
-        blocks.append({
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
-                }
-            ]
-        })
+        # Get weather
+        weather = get_weather_for_stadium(stadium)
+        if not weather:
+            return f"⚠️ *{away_team}* @ *{home_team}* | {game_time_pt.strftime('%I:%M %p PT')} | ⚠️ Weather unavailable"
         
-        message = {"blocks": blocks}
-        response = requests.post(SLACK_WEBHOOK_URL, json=message, timeout=10)
-        response.raise_for_status()
-        print(f"Line 17: Off-day message posted to #mls-gameday-weather")
+        # Get risk level
+        risk_level, why_triggered = get_risk_level(weather, stadium)
         
-    except Exception as e:
-        print(f"Line 18: Error posting off-day message: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-def post_gameday_dashboard(games):
-    """Post gameday dashboard with summary overview (MLS + Leagues Cup)."""
-    try:
-        print(f"Line 13: Processing {len(games)} games for dashboard")
+        # Get AQI
+        aqi_data = get_air_quality(stadium["latitude"], stadium["longitude"])
+        aqi_emoji = ""
+        if aqi_data and aqi_data.get("aqi_level"):
+            aqi_category = get_aqi_category(aqi_data["aqi"])
+            aqi_emoji = f" {aqi_category['emoji']}"
         
-        high_risk_count = 0
-        monitor_count = 0
-        clear_count = 0
-        
-        leagues_cup_count = 0  # Track Leagues Cup matches
-        high_risk_games = []
-        wind_concerns = []
-        rain_concerns = []
-        high_aqi_stadiums = []
-        temp_extremes = []
-        earliest_game = None
-        latest_game = None
-        
-        for idx, game in enumerate(games):
-            try:
-                print(f"Line 14.{idx}: Processing game...")
-                
-                if not isinstance(game, dict) or 'competitions' not in game:
-                    continue
-                
-                comp = game['competitions'][0]
-                competitors = comp.get('competitors', [])
-                
-                if not competitors or len(competitors) < 2:
-                    continue
-                
-                home_competitor = next((c for c in competitors if c.get('homeAway') == 'home'), None)
-                away_competitor = next((c for c in competitors if c.get('homeAway') == 'away'), None)
-                
-                if not home_competitor or not away_competitor:
-                    continue
-                
-                home_team = home_competitor.get('team', {}).get('displayName', '')
-                away_team = away_competitor.get('team', {}).get('displayName', '')
-                
-                if not home_team or not away_team:
-                    continue
-                
-                date_str = game.get('date', '')
-                if not date_str:
-                    continue
-                
-                try:
-                    game_date_utc = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                    game_date_pt = game_date_utc.astimezone(PT)
-                    game_time_pt = game_date_pt.strftime('%I:%M %p PT').lstrip('0')
-                except Exception as e:
-                    print(f"Line 14.{idx}g: Error parsing date {date_str}: {e}")
-                    continue
-                
-                # Check if this is a Leagues Cup match
-                is_lc = is_leagues_cup_match(comp)
-                if is_lc:
-                    leagues_cup_count += 1
-                    print(f"Line 14.{idx}lc: ✅ Leagues Cup match detected")
-                
-                # Track earliest and latest games
-                if earliest_game is None:
-                    earliest_game = (away_team, home_team, game_time_pt, is_lc)
-                latest_game = (away_team, home_team, game_time_pt, is_lc)
-                
-                venue_name = comp.get('venue', {}).get('fullName', 'Unknown Stadium')
-                
-                stadium_config = next((s for s in STADIUMS if s['stadium'] == venue_name), None)
-                
-                if not stadium_config:
-                    stadium_config = next((s for s in STADIUMS if home_team in s.get('teams', [])), None)
-                    if not stadium_config:
-                        continue
-                
-                weather = get_weather_for_stadium(stadium_config)
-                if not weather:
-                    continue
-                
-                lat = stadium_config.get('latitude')
-                lon = stadium_config.get('longitude')
-                air_quality_data = get_air_quality(lat, lon)
-                
-                air_quality_info = {}
-                if air_quality_data:
-                    aqi_cat = get_aqi_category(air_quality_data['aqi'])
-                    air_quality_info = {
-                        'aqi': air_quality_data['aqi'],
-                        'category': aqi_cat['category'],
-                        'emoji': aqi_cat['emoji'],
-                        'pm25': air_quality_data['pm25'],
-                    }
-                
-                risk_level, why_triggered = get_risk_level(weather, stadium_config)
-                delay_prob = get_delay_probability(risk_level, weather)
-                
-                # Count risk levels
-                if risk_level == 'HIGH RISK':
-                    high_risk_count += 1
-                    high_risk_games.append(f"{away_team} @ {home_team}")
-                elif risk_level == 'MONITOR':
-                    monitor_count += 1
-                else:
-                    clear_count += 1
-                
-                # Collect concerns for summary
-                temp = weather.get('temperature', 0)
-                rain = weather.get('rain_probability', 0)
-                wind = weather.get('wind_speed', 0)
-                conditions = weather.get('conditions', '')
-                
-                if rain >= 35:
-                    rain_concerns.append(f"{away_team} @ {home_team} ({rain}%)")
-                
-                if wind >= 20:
-                    wind_concerns.append(f"{away_team} @ {home_team} ({wind} mph)")
-                
-                if temp <= 35 or temp >= 95:
-                    temp_extremes.append(f"{away_team} @ {home_team} ({temp}°F)")
-                
-                if air_quality_info and air_quality_info.get('aqi', 0) >= 150:
-                    high_aqi_stadiums.append(f"{away_team} @ {home_team} (AQI {air_quality_info['aqi']})")
-                
-                print(f"Line 14.{idx}z: ✅ Processed: {away_team} @ {home_team}")
-            
-            except Exception as e:
-                print(f"Line 14.{idx}ERROR: {e}")
-                import traceback
-                traceback.print_exc()
-                continue
-        
-        print(f"\nLine 15: Successfully analyzed {len(games)} games ({leagues_cup_count} Leagues Cup)")
-        
-        total_games = high_risk_count + monitor_count + clear_count
-        if total_games == 0:
-            print("Line 16: No valid game data, posting no games message")
-            post_no_games_message()
-            return
-        
-        # Determine if this is a Leagues Cup day
-        leagues_cup_header = ""
-        if leagues_cup_count > 0:
-            leagues_cup_header = "🏆 LEAGUES CUP - MLS vs LIGA MX\n"
-        
-        # Build dashboard message
-        blocks = [
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": "⚽ MLS Daily Weather Report",
-                    "emoji": True
-                }
-            },
-            {"type": "divider"}
-        ]
-        
-        # Add Leagues Cup header if applicable
-        if leagues_cup_header:
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": leagues_cup_header
-                }
-            })
-        
-        blocks.extend([
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "📊 *TODAY'S OVERVIEW*"
-                }
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"🎮 *Games Scheduled:* {total_games}\n🔴 *High-Risk:* {high_risk_count} games\n🟡 *Monitor:* {monitor_count} games\n🟢 *Clear:* {clear_count} games"
-                }
-            },
-            {"type": "divider"},
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "⛅ *WEATHER SUMMARY*"
-                }
-            }
-        ])
+        # Format risk indicator
+        risk_emoji = "🟢" if risk_level == "CLEAR" else "🟡" if risk_level == "MONITOR" else "🔴"
         
         # Weather summary
         weather_summary = ""
-        if rain_concerns:
-            weather_summary += f"💧 Rain expected: {len(rain_concerns)} stadiums\n"
-        else:
-            weather_summary += f"☀️ Rain: None significant\n"
+        if weather.get("temperature"):
+            weather_summary += f"{int(weather['temperature'])}°F"
+        if weather.get("precipProbability"):
+            weather_summary += f" | {int(weather['precipProbability'])}% rain"
+        if weather.get("windSpeed"):
+            weather_summary += f" | {int(weather['windSpeed'])} mph wind"
         
-        if wind_concerns:
-            weather_summary += f"💨 Wind concerns: {len(wind_concerns)} stadiums (20+ mph)\n"
-        else:
-            weather_summary += f"💨 Wind: Light and manageable\n"
-        
-        if temp_extremes:
-            weather_summary += f"🌡️ Extreme temps: {len(temp_extremes)} stadiums\n"
-        else:
-            weather_summary += f"🌡️ Temperature: Moderate range\n"
-        
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": weather_summary
-            }
-        })
-        
-        # Air quality summary
-        blocks.append({"type": "divider"})
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "💨 *AIR QUALITY ALERT*"
-            }
-        })
-        
-        if high_aqi_stadiums:
-            aqi_text = f"⚠️ *AQI 150+ at {len(high_aqi_stadiums)} stadiums (Unhealthy)*\n"
-            aqi_text += f"✅ Normal AQI at {total_games - len(high_aqi_stadiums)} stadiums"
-        else:
-            aqi_text = f"✅ *All stadiums have healthy air quality*"
-        
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": aqi_text
-            }
-        })
-        
-        # Monitoring window - UPDATED LOGIC FOR SINGLE GAME
-        blocks.append({"type": "divider"})
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "⏱️ *MONITORING WINDOW*"
-            }
-        })
-        
-        if earliest_game and latest_game:
-            if total_games == 1:
-                # Single game - only show game time once
-                earliest_info = f"{earliest_game[0]} @ {earliest_game[1]} ({earliest_game[2]})"
-                monitoring_text = f"🎬 *Match:* {earliest_info}\n🚨 *Real-time monitoring:* 10 AM - 10 PM PT"
-            else:
-                # Multiple games - show first and last
-                earliest_info = f"{earliest_game[0]} @ {earliest_game[1]} ({earliest_game[2]})"
-                latest_info = f"{latest_game[0]} @ {latest_game[1]} ({latest_game[2]})"
-                monitoring_text = f"🎬 *First game:* {earliest_info}\n📍 *Last game:* {latest_info}\n🚨 *Real-time monitoring:* 10 AM - 10 PM PT"
-        else:
-            monitoring_text = "🚨 *Real-time monitoring:* 10 AM - 10 PM PT"
-        
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": monitoring_text
-            }
-        })
-        
-        # Action items
-        blocks.append({"type": "divider"})
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "📋 *ACTION ITEMS*"
-            }
-        })
-        
-        action_text = ""
-        if high_risk_count > 0:
-            action_text += f"• ⚠️ Check #mls-high-risk-alerts at 10 AM for {high_risk_count} HIGH RISK game(s)\n"
-            action_text += f"• Extend daypart windows for HIGH RISK games\n"
-        else:
-            action_text += f"• ✅ No HIGH RISK games — standard scheduling\n"
-        
-        if high_aqi_stadiums:
-            action_text += f"• Monitor air quality at {len(high_aqi_stadiums)} stadium(s) throughout day\n"
-        
-        if wind_concerns or rain_concerns:
-            action_text += f"• Have contingency plans ready for weather developments\n"
-        
-        action_text += f"• Monitor real-time alerts during 10 AM - 10 PM PT window"
-        
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": action_text
-            }
-        })
-        
-        blocks.append({"type": "divider"})
-        blocks.append({
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": f"Updated: {datetime.now(PT).strftime('%b %d at %I:%M %p PT')}"
-                }
-            ]
-        })
-        
-        message = {"blocks": blocks}
-        response = requests.post(SLACK_WEBHOOK_URL, json=message, timeout=10)
-        response.raise_for_status()
-        print(f"Line 19: Dashboard posted to Slack")
-        
-    except Exception as e:
-        print(f"Line 20: Error posting report: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-def main():
-    """Main function."""
-    try:
-        print("Line 0: Starting weather_bot.py")
-        today_games = get_mls_games_for_date()
-        
-        # NO GAMES SCHEDULED - POST OFF-DAY MESSAGE WITH NEXT MATCH INFO TO #mls-gameday-weather
-        if not today_games or len(today_games) == 0:
-            print("Line X: No games today - posting off-day message to #mls-gameday-weather")
-            post_no_games_message()
-            return
-        
-        # GAMES EXIST - POST FULL DASHBOARD TO #mls-gameday-weather
-        print("Line Y: Games found - posting weather dashboard")
-        post_gameday_dashboard(today_games)
+        return f"{risk_emoji} *{away_team}* @ *{home_team}* | {game_time_pt.strftime('%I:%M %p PT')} | {weather_summary}{aqi_emoji}"
     
     except Exception as e:
-        print(f"Line Z: Error: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"Error formatting game: {str(e)}")
+        return None
 
+def main():
+    """Main function - fetch games and post to Slack"""
+    try:
+        # Get today's date
+        today = datetime.now(PT).date()
+        date_str = today.strftime("%Y%m%d")
+        
+        # Load stadiums
+        stadiums = load_stadiums()
+        
+        # Fetch MLS games
+        try:
+            mls_response = requests.get(
+                f"{ESPN_MLS_SCOREBOARD}?dates={date_str}",
+                timeout=10
+            )
+            mls_response.raise_for_status()
+            mls_data = mls_response.json()
+        except Exception as e:
+            print(f"MLS API Error: {str(e)}")
+            mls_data = {"events": []}
+        
+        # Fetch Leagues Cup games
+        try:
+            lc_response = requests.get(
+                f"{ESPN_LEAGUES_CUP_SCOREBOARD}?dates={date_str}",
+                timeout=10
+            )
+            lc_response.raise_for_status()
+            lc_data = lc_response.json()
+        except Exception as e:
+            print(f"Leagues Cup API Error: {str(e)}")
+            lc_data = {"events": []}
+        
+        # Combine all events
+        all_events = mls_data.get("events", []) + lc_data.get("events", [])
+        
+        # Filter for gameday events only (status not "Scheduled")
+        games = []
+        for event in all_events:
+            competition = event.get("competitions", [{}])[0]
+            status = competition.get("status", {}).get("type", "")
+            # Include scheduled games and any with weather implications
+            if status in ["scheduled", "inprogress", "delayed"] or not status:
+                games.append(event)
+        
+        # Determine header
+        is_leagues_cup_day = any(
+            is_leagues_cup_match(event.get("competitions", [{}])[0])
+            for event in games
+        )
+        
+        header = "🏆 LEAGUES CUP - MLS vs LIGA MX" if is_leagues_cup_day else "⚽ *MLS WEATHER REPORT*"
+        
+        # Build message
+        if not games:
+            # Off-day message
+            next_game = get_next_game(stadiums)
+            message = f"{header}\n\n"
+            message += "📅 No games scheduled today\n\n"
+            if next_game:
+                message += f"📍 *Next Match:* {next_game['away_team']} @ {next_game['home_team']}\n"
+                message += f"📅 {next_game['date_str']} @ {next_game['time_str']}"
+            else:
+                message += "No upcoming games found"
+        else:
+            # Game day message
+            message = f"{header}\n\n"
+            
+            game_count = len(games)
+            if game_count == 1:
+                # Single game format
+                game_line = format_game_message(games[0], stadiums)
+                if game_line:
+                    message += f"🎬 *Match:* {game_line}\n"
+            else:
+                # Multiple games format
+                message += f"📊 *Games Today ({game_count}):*\n"
+                for i, game in enumerate(games, 1):
+                    game_line = format_game_message(game, stadiums)
+                    if game_line:
+                        message += f"{i}. {game_line}\n"
+            
+            # Add monitoring note
+            message += f"\n⏰ *Monitoring:* 10 AM - 10 PM PT"
+        
+        # Post to Slack
+        post_to_slack(message)
+        print(f"✅ Message posted to Slack")
+        
+    except Exception as e:
+        print(f"❌ Error in main: {str(e)}")
+        post_to_slack(f"❌ Weather Bot Error: {str(e)}")
 
-if __name__ == '__main__':
-    main()
-else:
+def get_next_game(stadiums):
+    """Get next scheduled game (stub for now)"""
+    # This would query ESPN for next game
+    # For now, return None to avoid errors
+    return None
+
+if __name__ == "__main__":
     main()
