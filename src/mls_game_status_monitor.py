@@ -1,386 +1,245 @@
-# mls_game_status_monitor.py
-# Real-Time Game Status Monitor for MLS
-# Checks every 5 minutes (10 AM - 10 PM PT) for game delays, postponements, and resumptions
-# Posts @channel alerts only when game state changes (delays, postponements, resumptions, suspensions)
-# DOES NOT post on off-days (off-day alerts handled by weather_bot.py at 7 AM)
-
 import os
 import json
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
+from src.utils import get_weather_for_stadium, get_risk_level, get_air_quality
 
-SLACK_WEBHOOK = os.environ.get('SLACK_WEBHOOK_URL_HIGH_RISK')
-STATE_FILE = 'mls_game_states.json'
+# ESPN API endpoints
+ESPN_MLS_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard"
+ESPN_LEAGUES_CUP_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer/concacaf.leagues.cup/scoreboard"
 
-# ── Normalized state constants ─────────────────────────────────────────────────
+# Slack webhook
+SLACK_WEBHOOK_URL_HIGH_RISK = os.getenv("SLACK_WEBHOOK_URL_HIGH_RISK")
+
+# PT timezone
+PT = pytz.timezone("America/Los_Angeles")
+
+# Game state constants
 STATE_DELAYED = "DELAYED"
 STATE_POSTPONED = "POSTPONED"
+STATE_SUSPENDED = "SUSPENDED"
+STATE_RESUMED = "RESUMED"
 STATE_LIVE = "LIVE"
 STATE_FINAL = "FINAL"
-STATE_PREVIEW = "PREVIEW"
-STATE_SUSPENDED = "SUSPENDED"
 
-ESPN_MLS_SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard'
+# State cache file
+STATE_CACHE_FILE = "mls_game_states.json"
 
-with open('config/mls_stadiums.json', 'r') as f:
-    STADIUMS = json.load(f)
+def load_stadiums():
+    """Load stadium configuration"""
+    config_path = os.path.join(os.path.dirname(__file__), "..", "config", "mls_stadiums.json")
+    with open(config_path, "r") as f:
+        return json.load(f)
 
-PT = pytz.timezone('America/Los_Angeles')
+def get_stadium_by_team(stadiums, team_name):
+    """Find stadium by team name"""
+    for stadium in stadiums:
+        if any(team_name.lower() in t.lower() for t in stadium.get("teams", [])):
+            return stadium
+    return None
 
+def is_leagues_cup_match(event):
+    """Check if match is Leagues Cup"""
+    if not event or "competitions" not in event:
+        return False
+    competition = event.get("competitions", [{}])[0]
+    comp_name = competition.get("name", "").lower()
+    return "leagues cup" in comp_name
 
-def load_game_states():
-    """Load previously tracked game states"""
+def load_state_cache():
+    """Load game state cache"""
     try:
-        with open(STATE_FILE, 'r') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
-
-
-def save_game_states(states):
-    """Save game states for next run"""
-    with open(STATE_FILE, 'w') as f:
-        json.dump(states, f, indent=2)
-
-
-def get_mls_game_status(game_date):
-    """Fetch MLS games for today using ESPN API"""
-    url = f"{ESPN_MLS_SCOREBOARD}?dates={game_date}"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        games_status = []
-
-        if 'events' in data:
-            for event in data['events']:
-                try:
-                    if 'competitions' not in event:
-                        continue
-
-                    comp = event['competitions'][0]
-                    competitors = comp.get('competitors', [])
-
-                    if not competitors or len(competitors) < 2:
-                        continue
-
-                    home_competitor = next((c for c in competitors if c.get('homeAway') == 'home'), None)
-                    away_competitor = next((c for c in competitors if c.get('homeAway') == 'away'), None)
-
-                    if not home_competitor or not away_competitor:
-                        continue
-
-                    away_team = away_competitor.get('team', {}).get('displayName', 'Away Team')
-                    home_team = home_competitor.get('team', {}).get('displayName', 'Home Team')
-                    away_score = away_competitor.get('score', 0)
-                    home_score = home_competitor.get('score', 0)
-
-                    # Get game status
-                    status = comp.get('status', {})
-                    status_type = status.get('type', '')
-                    detailed_status = status.get('description', 'Preview')
-
-                    # Get venue info
-                    venue_name = comp.get('venue', {}).get('fullName', 'Unknown Stadium')
-                    stadium_config = next((s for s in STADIUMS if s['stadium'] == venue_name), None)
-                    if not stadium_config:
-                        stadium_config = next((s for s in STADIUMS if home_team in s.get('teams', [])), None)
-
-                    roof_type = 'unknown'
-                    if stadium_config:
-                        roof_type = stadium_config.get('roof', 'open')
-
-                    # Get current time elapsed (minute)
-                    current_minute = None
-                    if 'summary' in comp:
-                        for summary_item in comp['summary']:
-                            if summary_item.get('type') == 'time':
-                                current_minute = summary_item.get('displayValue', '')
-
-                    # Get game event ID for tracking
-                    event_id = event.get('id', '')
-
-                    # Get delay/postponement reason
-                    reason = status.get('reason', '')
-                    if not reason and 'note' in status:
-                        reason = status['note'].get('headline', '')
-
-                    games_status.append({
-                        'event_id': event_id,
-                        'matchup': f"{away_team} @ {home_team}",
-                        'away_team': away_team,
-                        'home_team': home_team,
-                        'away_score': away_score,
-                        'home_score': home_score,
-                        'current_minute': current_minute,
-                        'status_type': status_type,
-                        'detailed_status': detailed_status,
-                        'reason': reason,
-                        'venue': venue_name,
-                        'roof_type': roof_type
-                    })
-
-                except Exception as e:
-                    print(f"Error processing game: {e}")
-                    continue
-
-        return games_status
-
+        if os.path.exists(STATE_CACHE_FILE):
+            with open(STATE_CACHE_FILE, "r") as f:
+                return json.load(f)
     except Exception as e:
-        print(f"Error fetching MLS game status: {e}")
-        return []
+        print(f"Error loading state cache: {str(e)}")
+    return {}
 
+def save_state_cache(cache):
+    """Save game state cache"""
+    try:
+        with open(STATE_CACHE_FILE, "w") as f:
+            json.dump(cache, f, indent=2)
+    except Exception as e:
+        print(f"Error saving state cache: {str(e)}")
 
-def is_weather_related(reason, detailed_status):
-    """Check if delay/postponement is weather-related"""
-    combined = (detailed_status + ' ' + reason).lower()
-    weather_keywords = ['rain', 'weather', 'storm', 'lightning',
-                        'inclement', 'wind', 'snow', 'fog', 'thunder']
-    return any(keyword in combined for keyword in weather_keywords)
+def get_game_state(competition):
+    """Extract game state from competition"""
+    status = competition.get("status", {}).get("type", "").upper()
+    
+    if "DELAYED" in status:
+        return STATE_DELAYED
+    elif "POSTPONED" in status:
+        return STATE_POSTPONED
+    elif "SUSPENDED" in status:
+        return STATE_SUSPENDED
+    elif "LIVE" in status or "IN_PROGRESS" in status:
+        return STATE_LIVE
+    elif "FINAL" in status:
+        return STATE_FINAL
+    else:
+        return status
 
-
-def is_active_weather_delay(game_status):
-    """Returns True if game is in active in-game weather delay"""
-    detailed = game_status['detailed_status'].lower()
-
-    # Exclude postponed/suspended states
-    if 'postponed' in detailed or 'suspend' in detailed:
+def post_to_slack(message):
+    """Post message to Slack"""
+    payload = {"text": message}
+    try:
+        response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=payload)
+        return response.status_code == 200
+    except Exception as e:
+        print(f"Error posting to Slack: {str(e)}")
         return False
 
-    # Check if delayed and weather-related
-    is_delayed = 'delay' in detailed or 'delayed' in detailed
-    return is_delayed and is_weather_related(game_status['reason'], game_status['detailed_status'])
-
-
-def is_postponed(game_status):
-    """Returns True if game is officially postponed"""
-    return 'postponed' in game_status['detailed_status'].lower()
-
-
-def is_suspended(game_status):
-    """Returns True if game is suspended"""
-    return 'suspend' in game_status['detailed_status'].lower()
-
-
-def normalize_api_state(game_status):
-    """Convert ESPN API state to normalized internal state constant"""
-    detailed = game_status['detailed_status'].lower()
-    status_type = game_status['status_type']
-
-    if 'postponed' in detailed:
-        return STATE_POSTPONED
-    if 'suspend' in detailed:
-        return STATE_SUSPENDED
-    if 'delay' in detailed:
-        return STATE_DELAYED
-    if status_type == 'STATUS_IN_PROGRESS':
-        return STATE_LIVE
-    if status_type == 'STATUS_FINAL':
-        return STATE_FINAL
-    return STATE_PREVIEW
-
-
-def get_stadium_type_emoji(roof_type):
-    """Return stadium type emoji"""
-    if roof_type == 'retractable':
-        return '🔄 Retractable Roof'
-    elif roof_type == 'domed':
-        return '🏟️ Domed'
-    else:
-        return '☀️ Open Air'
-
-
-def send_delay_alert(game_status, alert_type):
-    """Send @channel alert for delay, resumption, postponement, or suspension"""
-    now = datetime.now(PT)
-
-    matchup = game_status['matchup']
-    venue = game_status['venue']
-    roof_emoji = get_stadium_type_emoji(game_status['roof_type'])
-
-    if alert_type == STATE_DELAYED:
-        emoji = "🚨"
-        title = "WEATHER DELAY DETECTED"
-        text = f"🚨 Weather delay: {matchup}"
-    elif alert_type == "RESUME":
-        emoji = "✅"
-        title = "GAME RESUMING"
-        text = f"✅ Game resuming: {matchup}"
-    elif alert_type == STATE_POSTPONED:
-        emoji = "📅"
-        title = "GAME POSTPONED"
-        text = f"📅 Game postponed: {matchup}"
-    elif alert_type == STATE_SUSPENDED:
-        emoji = "⏸️"
-        title = "GAME SUSPENDED"
-        text = f"⏸️ Game suspended: {matchup}"
-    else:
-        emoji = "ℹ️"
-        title = "GAME STATUS UPDATE"
-        text = f"ℹ️ Status update: {matchup}"
-
-    message = {
-        "text": text,
-        "blocks": [
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": f"{emoji} {title}",
-                    "emoji": True
-                }
-            },
-            {
-                "type": "section",
-                "fields": [
-                    {"type": "mrkdwn", "text": f"*Game:*\n⚽ {matchup}"},
-                    {"type": "mrkdwn", "text": f"*Status:*\n{game_status['detailed_status']}"}
-                ]
-            },
-            {
-                "type": "section",
-                "fields": [
-                    {"type": "mrkdwn", "text": f"*Venue:*\n{venue}"},
-                    {"type": "mrkdwn", "text": f"*Stadium Type:*\n{roof_emoji}"}
-                ]
-            }
-        ]
-    }
-
-    # Add score and minute for delay/resume alerts
-    if alert_type in [STATE_DELAYED, "RESUME"]:
-        away_score = game_status['away_score']
-        home_score = game_status['home_score']
-        minute = game_status['current_minute'] or 'N/A'
-
-        score_text = f"{game_status['away_team']} {away_score}, {game_status['home_team']} {home_score}"
-
-        message["blocks"].append({
-            "type": "section",
-            "fields": [
-                {"type": "mrkdwn", "text": f"*Score:*\n{score_text}"},
-                {"type": "mrkdwn", "text": f"*Current Time:*\n{minute}'"}
-            ]
-        })
-
-    # Add reason if available
-    if game_status['reason']:
-        message["blocks"].append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*Reason:* {game_status['reason']}"
-            }
-        })
-
-    # Add retractable roof note
-    if game_status['roof_type'] == 'retractable':
-        if alert_type in [STATE_DELAYED, STATE_POSTPONED]:
-            note = "⚠️ *Note:* Stadium has retractable roof — may have been open or roof malfunction"
-            message["blocks"].append({
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": note}]
-            })
-
-    # Add timestamp with @channel tag
-    message["blocks"].append({
-        "type": "context",
-        "elements": [
-            {
-                "type": "mrkdwn",
-                "text": f"<!channel> Alert sent at {now.strftime('%I:%M %p')} PT"
-            }
-        ]
-    })
-
-    try:
-        response = requests.post(SLACK_WEBHOOK, json=message, timeout=10)
-
-        if response.status_code == 200:
-            print(f"✅ {alert_type} alert sent for {matchup}")
-        else:
-            print(f"❌ Failed to send alert: {response.status_code}")
-
-    except Exception as e:
-        print(f"❌ Error sending alert: {e}")
-
-
-def monitor_games():
-    """Monitor games for status changes and send alerts"""
-    now = datetime.now(PT)
-    today = now.strftime('%Y%m%d')
-
-    print(f"🔍 Monitoring MLS games for {now.strftime('%Y-%m-%d')} ({now.strftime('%I:%M %p PT')})...")
-
-    previous_states = load_game_states()
-    current_states = {}
-
-    games = get_mls_game_status(today)
-
-    if not games:
-        print("ℹ️  No games found for today (off-day)")
-        print("ℹ️  Off-day alert handled by weather_bot.py at 7 AM")
-        # Still save empty state for tracking
-        save_game_states(current_states)
-        return
-
-    print(f"📅 Found {len(games)} game(s)")
-
-    for game in games:
-        event_id = game['event_id']
-        venue_name = game['venue']
-        previous_entry = previous_states.get(event_id, {})
-        previous_state = previous_entry.get('state')
-
-        current_normalized = normalize_api_state(game)
-
-        if previous_state is None:
-            print(f"   🔍 First seen: {game['matchup']} at {venue_name} — state: {current_normalized}")
-
-        # ── Check order: POSTPONED → SUSPENDED → DELAYED → RESUME ─────────────
-        if is_postponed(game) and previous_state != STATE_POSTPONED:
-            print(f"📅 POSTPONED: {game['matchup']} at {venue_name}")
-            if is_weather_related(game['reason'], game['detailed_status']):
-                send_delay_alert(game, STATE_POSTPONED)
-            else:
-                print(f"   ℹ️  Non-weather postponement — skipping alert")
-            current_states[event_id] = {'state': STATE_POSTPONED, 'matchup': game['matchup']}
-
-        elif is_suspended(game) and previous_state != STATE_SUSPENDED:
-            print(f"⏸️ SUSPENDED: {game['matchup']} at {venue_name}")
-            send_delay_alert(game, STATE_SUSPENDED)
-            current_states[event_id] = {'state': STATE_SUSPENDED, 'matchup': game['matchup']}
-
-        elif is_active_weather_delay(game) and previous_state != STATE_DELAYED:
-            print(f"🚨 WEATHER DELAY: {game['matchup']} at {venue_name}")
-            send_delay_alert(game, STATE_DELAYED)
-            current_states[event_id] = {'state': STATE_DELAYED, 'matchup': game['matchup']}
-
-        elif previous_state == STATE_DELAYED and current_normalized == STATE_LIVE:
-            print(f"✅ RESUMING: {game['matchup']} at {venue_name}")
-            send_delay_alert(game, "RESUME")
-            current_states[event_id] = {'state': STATE_LIVE, 'matchup': game['matchup']}
-
-        else:
-            current_states[event_id] = {
-                'state': previous_state if previous_state else current_normalized,
-                'matchup': game['matchup']
-            }
-            if previous_state:  # Only print if we've seen this game before
-                print(f"   ✅ No change: {game['matchup']} — {current_normalized}")
-
-    save_game_states(current_states)
-    print(f"\n✅ Monitoring complete — checked {len(games)} games")
-
+def get_delay_reason(competition, stadium):
+    """Extract delay reason from competition"""
+    status_desc = competition.get("status", {}).get("detail", "").lower()
+    notes = competition.get("notes", [])
+    
+    weather_keywords = ['rain', 'weather', 'storm', 'lightning', 'inclement', 'wind', 'snow', 'fog', 'thunder']
+    
+    # Check status description
+    for keyword in weather_keywords:
+        if keyword in status_desc:
+            return f"⚠️ Weather-related: {status_desc}"
+    
+    # Check notes
+    if notes:
+        note_text = " ".join([n.get("headline", "") for n in notes]).lower()
+        for keyword in weather_keywords:
+            if keyword in note_text:
+                return f"⚠️ Weather-related delay"
+    
+    return "⏸️ Delay reason not yet specified"
 
 def main():
+    """Main function - monitor game status changes"""
     try:
-        monitor_games()
+        today = datetime.now(PT).date()
+        date_str = today.strftime("%Y%m%d")
+        
+        stadiums = load_stadiums()
+        state_cache = load_state_cache()
+        
+        # Fetch MLS games
+        try:
+            mls_response = requests.get(
+                f"{ESPN_MLS_SCOREBOARD}?dates={date_str}",
+                timeout=10
+            )
+            mls_data = mls_response.json() if mls_response.status_code == 200 else {"events": []}
+        except Exception as e:
+            print(f"MLS API Error: {str(e)}")
+            mls_data = {"events": []}
+        
+        # Fetch Leagues Cup games
+        try:
+            lc_response = requests.get(
+                f"{ESPN_LEAGUES_CUP_SCOREBOARD}?dates={date_str}",
+                timeout=10
+            )
+            lc_data = lc_response.json() if lc_response.status_code == 200 else {"events": []}
+        except Exception as e:
+            print(f"Leagues Cup API Error: {str(e)}")
+            lc_data = {"events": []}
+        
+        # Combine events
+        all_events = mls_data.get("events", []) + lc_data.get("events", [])
+        
+        alerts_posted = []
+        
+        # Monitor each game
+        for event in all_events:
+            try:
+                event_id = event.get("id")
+                competition = event.get("competitions", [{}])[0]
+                competitors = competition.get("competitors", [])
+                
+                if len(competitors) < 2:
+                    continue
+                
+                home_team = competitors[0]["team"]["displayName"]
+                away_team = competitors[1]["team"]["displayName"]
+                
+                game_time_str = competition.get("startDate", "")
+                if not game_time_str:
+                    continue
+                
+                try:
+                    game_time = datetime.fromisoformat(game_time_str.replace("Z", "+00:00"))
+                    game_time_pt = game_time.astimezone(PT)
+                except:
+                    continue
+                
+                # Get current state
+                current_state = get_game_state(competition)
+                previous_state = state_cache.get(event_id, "SCHEDULED")
+                
+                # Check if Leagues Cup
+                is_lc = is_leagues_cup_match(event)
+                lc_header = "🏆 LEAGUES CUP" if is_lc else "⚽ MLS"
+                
+                # Alert on state changes (priority order)
+                if current_state == STATE_POSTPONED and previous_state != STATE_POSTPONED:
+                    message = f"{lc_header} - 🚨 *GAME POSTPONED*\n\n"
+                    message += f"*{away_team}* @ *{home_team}*\n"
+                    message += f"⏰ Originally scheduled: {game_time_pt.strftime('%I:%M %p PT')}\n"
+                    message += f"📍 Status: POSTPONED\n\n"
+                    message += f"{get_delay_reason(competition, None)}\n\n"
+                    message += "📞 Contact venue for rescheduling details"
+                    
+                    post_to_slack(message)
+                    alerts_posted.append(f"POSTPONED: {away_team} @ {home_team}")
+                
+                elif current_state == STATE_SUSPENDED and previous_state != STATE_SUSPENDED:
+                    message = f"{lc_header} - ⏸️ *GAME SUSPENDED*\n\n"
+                    message += f"*{away_team}* @ *{home_team}*\n"
+                    message += f"⏰ Time: {game_time_pt.strftime('%I:%M %p PT')}\n"
+                    message += f"📍 Status: SUSPENDED (in-play)\n\n"
+                    message += f"{get_delay_reason(competition, None)}\n\n"
+                    message += "🔔 Monitoring for resumption"
+                    
+                    post_to_slack(message)
+                    alerts_posted.append(f"SUSPENDED: {away_team} @ {home_team}")
+                
+                elif current_state == STATE_DELAYED and previous_state != STATE_DELAYED:
+                    message = f"{lc_header} - ⏳ *GAME DELAYED*\n\n"
+                    message += f"*{away_team}* @ *{home_team}*\n"
+                    message += f"⏰ Originally scheduled: {game_time_pt.strftime('%I:%M %p PT')}\n"
+                    message += f"📍 Status: DELAYED\n\n"
+                    message += f"{get_delay_reason(competition, None)}\n\n"
+                    message += "🔔 Monitoring for kickoff update"
+                    
+                    post_to_slack(message)
+                    alerts_posted.append(f"DELAYED: {away_team} @ {home_team}")
+                
+                elif current_state == STATE_RESUMED and previous_state == STATE_SUSPENDED:
+                    message = f"{lc_header} - ▶️ *GAME RESUMED*\n\n"
+                    message += f"*{away_team}* @ *{home_team}*\n"
+                    message += f"✅ Play has resumed — match now LIVE"
+                    
+                    post_to_slack(message)
+                    alerts_posted.append(f"RESUMED: {away_team} @ {home_team}")
+                
+                # Update cache with current state
+                state_cache[event_id] = current_state
+                
+            except Exception as e:
+                print(f"Error processing game: {str(e)}")
+                continue
+        
+        # Save updated cache
+        save_state_cache(state_cache)
+        
+        if alerts_posted:
+            print(f"✅ Posted {len(alerts_posted)} alert(s): {', '.join(alerts_posted)}")
+        else:
+            print("✅ No status changes detected")
+        
     except Exception as e:
-        print(f"❌ Error in game status monitor: {e}")
-        raise
-
+        print(f"❌ Main error: {str(e)}")
+        post_to_slack(f"❌ Game Status Monitor Error: {str(e)}")
 
 if __name__ == "__main__":
     main()
