@@ -1,8 +1,6 @@
 name: Real-Time Delay Monitor
 
 on:
-  schedule:
-    - cron: '*/30 12-20 * * *'
   workflow_dispatch:
 
 jobs:
