@@ -92,16 +92,6 @@ def get_game_state(competition):
         print(f"Error getting game state: {str(e)}")
         return "UNKNOWN"
 
-def post_to_slack(message):
-    """Post message to Slack"""
-    payload = {"text": message}
-    try:
-        response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=payload)
-        return response.status_code == 200
-    except Exception as e:
-        print(f"Error posting to Slack: {str(e)}")
-        return False
-
 def get_delay_reason(competition, stadium):
     """Extract delay reason from competition"""
     try:
@@ -126,6 +116,85 @@ def get_delay_reason(competition, stadium):
     except Exception as e:
         print(f"Error getting delay reason: {str(e)}")
         return "⏸️ Delay reason not yet specified"
+
+def post_to_slack(message_data):
+    """
+    Post message to Slack with @channel mention for delays/postponements/resumptions
+    
+    Args:
+        message_data: Dict with keys:
+            - status_type: "DELAY", "POSTPONEMENT", "SUSPENDED", "RESUMED"
+            - game: "Team A @ Team B"
+            - time: "1:30 PM PT" (original scheduled time)
+            - stadium: "Stadium Name"
+            - reason: "Lightning strike..." or "Rain..."
+            - is_leagues_cup: Boolean
+    """
+    
+    status_type = message_data.get("status_type", "UNKNOWN")
+    is_lc = message_data.get("is_leagues_cup", False)
+    
+    # Determine emoji, title, and mention level based on status
+    if status_type == "POSTPONEMENT":
+        emoji = "🚫"
+        title = "GAME POSTPONEMENT"
+        mention = "<!channel>"
+    elif status_type == "SUSPENDED":
+        emoji = "⏸️"
+        title = "GAME SUSPENDED"
+        mention = "<!channel>"
+    elif status_type == "DELAY":
+        emoji = "⚠️"
+        title = "GAME DELAY ALERT"
+        mention = "<!channel>"
+    elif status_type == "RESUMED":
+        emoji = "✅"
+        title = "GAME RESUMING"
+        mention = "<!here>"  # @here for resumption (less critical than delay)
+    else:
+        emoji = "ℹ️"
+        title = "GAME STATUS UPDATE"
+        mention = ""
+    
+    # League indicator
+    league = "🏆 LEAGUES CUP" if is_lc else "⚽ MLS"
+    
+    # Build markdown message text
+    msg_text = f"{emoji} *{title}*\n\n"
+    msg_text += f"🎬 *Game:* {message_data.get('game', 'Unknown')}\n"
+    msg_text += f"⏰ *Time:* {message_data.get('time', 'TBD')}\n"
+    msg_text += f"📍 *Stadium:* {message_data.get('stadium', 'Unknown')}\n"
+    msg_text += f"🌩️ *Reason:* {message_data.get('reason', 'Not specified')}"
+    
+    # Build Slack Block Kit payload with @channel mention
+    payload = {
+        "text": f"{mention} {title}",  # Fallback text with mention
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"{mention}\n\n{msg_text}"
+                }
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"{league} • Alert sent at {datetime.now(PT).strftime('%I:%M %p PT')}"
+                    }
+                ]
+            }
+        ]
+    }
+    
+    try:
+        response = requests.post(SLACK_WEBHOOK_URL_HIGH_RISK, json=payload)
+        return response.status_code == 200
+    except Exception as e:
+        print(f"Error posting to Slack: {str(e)}")
+        return False
 
 def main():
     """Main function - monitor game status changes"""
@@ -192,48 +261,54 @@ def main():
                 
                 # Check if Leagues Cup
                 is_lc = is_leagues_cup_match(event)
-                lc_header = "🏆 LEAGUES CUP" if is_lc else "⚽ MLS"
+                
+                # Get stadium info
+                stadium_config = get_stadium_by_team(stadiums, home_team)
+                stadium_name = stadium_config.get("name", "Unknown Stadium") if stadium_config else "Unknown Stadium"
                 
                 # Alert on state changes (priority order)
                 if current_state == STATE_POSTPONED and previous_state != STATE_POSTPONED:
-                    message = f"{lc_header} - 🚨 *GAME POSTPONED*\n\n"
-                    message += f"*{away_team}* @ *{home_team}*\n"
-                    message += f"⏰ Originally scheduled: {game_time_pt.strftime('%I:%M %p PT')}\n"
-                    message += f"📍 Status: POSTPONED\n\n"
-                    message += f"{get_delay_reason(competition, None)}\n\n"
-                    message += "📞 Contact venue for rescheduling details"
-                    
-                    post_to_slack(message)
+                    post_to_slack({
+                        "status_type": "POSTPONEMENT",
+                        "game": f"{away_team} @ {home_team}",
+                        "time": game_time_pt.strftime('%I:%M %p PT'),
+                        "stadium": stadium_name,
+                        "reason": get_delay_reason(competition, stadium_config),
+                        "is_leagues_cup": is_lc
+                    })
                     alerts_posted.append(f"POSTPONED: {away_team} @ {home_team}")
                 
                 elif current_state == STATE_SUSPENDED and previous_state != STATE_SUSPENDED:
-                    message = f"{lc_header} - ⏸️ *GAME SUSPENDED*\n\n"
-                    message += f"*{away_team}* @ *{home_team}*\n"
-                    message += f"⏰ Time: {game_time_pt.strftime('%I:%M %p PT')}\n"
-                    message += f"📍 Status: SUSPENDED (in-play)\n\n"
-                    message += f"{get_delay_reason(competition, None)}\n\n"
-                    message += "🔔 Monitoring for resumption"
-                    
-                    post_to_slack(message)
+                    post_to_slack({
+                        "status_type": "SUSPENDED",
+                        "game": f"{away_team} @ {home_team}",
+                        "time": game_time_pt.strftime('%I:%M %p PT'),
+                        "stadium": stadium_name,
+                        "reason": get_delay_reason(competition, stadium_config),
+                        "is_leagues_cup": is_lc
+                    })
                     alerts_posted.append(f"SUSPENDED: {away_team} @ {home_team}")
                 
                 elif current_state == STATE_DELAYED and previous_state != STATE_DELAYED:
-                    message = f"{lc_header} - ⏳ *GAME DELAYED*\n\n"
-                    message += f"*{away_team}* @ *{home_team}*\n"
-                    message += f"⏰ Originally scheduled: {game_time_pt.strftime('%I:%M %p PT')}\n"
-                    message += f"📍 Status: DELAYED\n\n"
-                    message += f"{get_delay_reason(competition, None)}\n\n"
-                    message += "🔔 Monitoring for kickoff update"
-                    
-                    post_to_slack(message)
+                    post_to_slack({
+                        "status_type": "DELAY",
+                        "game": f"{away_team} @ {home_team}",
+                        "time": game_time_pt.strftime('%I:%M %p PT'),
+                        "stadium": stadium_name,
+                        "reason": get_delay_reason(competition, stadium_config),
+                        "is_leagues_cup": is_lc
+                    })
                     alerts_posted.append(f"DELAYED: {away_team} @ {home_team}")
                 
                 elif current_state == STATE_RESUMED and previous_state == STATE_SUSPENDED:
-                    message = f"{lc_header} - ▶️ *GAME RESUMED*\n\n"
-                    message += f"*{away_team}* @ *{home_team}*\n"
-                    message += f"✅ Play has resumed — match now LIVE"
-                    
-                    post_to_slack(message)
+                    post_to_slack({
+                        "status_type": "RESUMED",
+                        "game": f"{away_team} @ {home_team}",
+                        "time": game_time_pt.strftime('%I:%M %p PT (delayed from original time)'),
+                        "stadium": stadium_name,
+                        "reason": "Weather cleared — safe to play",
+                        "is_leagues_cup": is_lc
+                    })
                     alerts_posted.append(f"RESUMED: {away_team} @ {home_team}")
                 
                 # Update cache with current state
@@ -253,7 +328,6 @@ def main():
         
     except Exception as e:
         print(f"❌ Main error: {str(e)}")
-        post_to_slack(f"❌ Game Status Monitor Error: {str(e)}")
 
 if __name__ == "__main__":
     main()
