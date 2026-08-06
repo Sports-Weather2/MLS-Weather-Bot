@@ -67,20 +67,30 @@ def save_state_cache(cache):
 
 def get_game_state(competition):
     """Extract game state from competition"""
-    status = competition.get("status", {}).get("type", "").upper()
-    
-    if "DELAYED" in status:
-        return STATE_DELAYED
-    elif "POSTPONED" in status:
-        return STATE_POSTPONED
-    elif "SUSPENDED" in status:
-        return STATE_SUSPENDED
-    elif "LIVE" in status or "IN_PROGRESS" in status:
-        return STATE_LIVE
-    elif "FINAL" in status:
-        return STATE_FINAL
-    else:
-        return status
+    try:
+        status = competition.get("status", {}).get("type", "")
+        
+        # Handle case where status might not be a string
+        if not isinstance(status, str):
+            return "UNKNOWN"
+        
+        status = status.upper()
+        
+        if "DELAYED" in status:
+            return STATE_DELAYED
+        elif "POSTPONED" in status:
+            return STATE_POSTPONED
+        elif "SUSPENDED" in status:
+            return STATE_SUSPENDED
+        elif "LIVE" in status or "IN_PROGRESS" in status:
+            return STATE_LIVE
+        elif "FINAL" in status:
+            return STATE_FINAL
+        else:
+            return status
+    except Exception as e:
+        print(f"Error getting game state: {str(e)}")
+        return "UNKNOWN"
 
 def post_to_slack(message):
     """Post message to Slack"""
@@ -94,24 +104,28 @@ def post_to_slack(message):
 
 def get_delay_reason(competition, stadium):
     """Extract delay reason from competition"""
-    status_desc = competition.get("status", {}).get("detail", "").lower()
-    notes = competition.get("notes", [])
-    
-    weather_keywords = ['rain', 'weather', 'storm', 'lightning', 'inclement', 'wind', 'snow', 'fog', 'thunder']
-    
-    # Check status description
-    for keyword in weather_keywords:
-        if keyword in status_desc:
-            return f"⚠️ Weather-related: {status_desc}"
-    
-    # Check notes
-    if notes:
-        note_text = " ".join([n.get("headline", "") for n in notes]).lower()
+    try:
+        status_desc = competition.get("status", {}).get("detail", "").lower()
+        notes = competition.get("notes", [])
+        
+        weather_keywords = ['rain', 'weather', 'storm', 'lightning', 'inclement', 'wind', 'snow', 'fog', 'thunder']
+        
+        # Check status description
         for keyword in weather_keywords:
-            if keyword in note_text:
-                return f"⚠️ Weather-related delay"
-    
-    return "⏸️ Delay reason not yet specified"
+            if keyword in status_desc:
+                return f"⚠️ Weather-related: {status_desc}"
+        
+        # Check notes
+        if notes:
+            note_text = " ".join([n.get("headline", "") for n in notes]).lower()
+            for keyword in weather_keywords:
+                if keyword in note_text:
+                    return f"⚠️ Weather-related delay"
+        
+        return "⏸️ Delay reason not yet specified"
+    except Exception as e:
+        print(f"Error getting delay reason: {str(e)}")
+        return "⏸️ Delay reason not yet specified"
 
 def main():
     """Main function - monitor game status changes"""
