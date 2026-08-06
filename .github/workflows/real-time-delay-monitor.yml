@@ -1,18 +1,63 @@
 name: Real-Time Delay Monitor
-
 on:
   schedule:
-    # Every 5 minutes from 2 PM - 11:55 PM UTC (7 AM - 4:55 PM PT)
-    - cron: '*/15 14-23 * * *'
-    # Every 5 minutes from 12 AM - 5:55 AM UTC (5 PM - 10:55 PM PT next day)
-    - cron: '*/5 0-5 * * *'
+    - cron: '*/15 12-20 * * *'  # 12 PM - 8 PM PT (covers all MLS/Leagues Cup kickoffs 12:30 PM - 7:30 PM)
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
+  check-games-today:
+    name: Check if MLS/Leagues Cup games today
+    runs-on: ubuntu-latest
+    outputs:
+      has_mls_games: ${{ steps.check-mls.outputs.has_games }}
+      has_lc_games: ${{ steps.check-lc.outputs.has_games }}
+      has_any_games: ${{ steps.check-any.outputs.has_games }}
+    steps:
+      - name: Check MLS games
+        id: check-mls
+        run: |
+          TODAY=$(date +%Y%m%d)
+          echo "Checking MLS games for $TODAY..."
+          RESPONSE=$(curl -s "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard?dates=${TODAY}")
+          GAME_COUNT=$(echo "$RESPONSE" | jq '.events | length' 2>/dev/null || echo 0)
+          echo "MLS games found: $GAME_COUNT"
+          if [ "$GAME_COUNT" -gt 0 ]; then
+            echo "has_games=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_games=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check Leagues Cup games
+        id: check-lc
+        run: |
+          TODAY=$(date +%Y%m%d)
+          echo "Checking Leagues Cup games for $TODAY..."
+          RESPONSE=$(curl -s "https://site.api.espn.com/apis/site/v2/sports/soccer/concacaf.leagues.cup/scoreboard?dates=${TODAY}")
+          GAME_COUNT=$(echo "$RESPONSE" | jq '.events | length' 2>/dev/null || echo 0)
+          echo "Leagues Cup games found: $GAME_COUNT"
+          if [ "$GAME_COUNT" -gt 0 ]; then
+            echo "has_games=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_games=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check if any games exist
+        id: check-any
+        run: |
+          MLS=${{ steps.check-mls.outputs.has_games }}
+          LC=${{ steps.check-lc.outputs.has_games }}
+          if [[ "$MLS" == "true" || "$LC" == "true" ]]; then
+            echo "has_games=true" >> $GITHUB_OUTPUT
+            echo "✅ Games found today - proceeding with monitoring"
+          else
+            echo "has_games=false" >> $GITHUB_OUTPUT
+            echo "⏭️ No games today - skipping delay monitor"
+          fi
+
   monitor-delays:
+    name: Monitor game delays and status changes
+    needs: check-games-today
+    if: needs.check-games-today.outputs.has_any_games == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,10 +70,19 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install requests pytz slack-sdk
 
       - name: Monitor game delays and status changes
+        run: python -m src.mls_game_status_monitor
         env:
           SLACK_WEBHOOK_URL_HIGH_RISK: ${{ secrets.SLACK_WEBHOOK_URL_HIGH_RISK }}
           OPENWEATHERMAP_API_KEY: ${{ secrets.OPENWEATHERMAP_API_KEY }}
-        run: python -m src.mls_game_status_monitor
+
+  skip-notification:
+    name: Skip notification (no games today)
+    needs: check-games-today
+    if: needs.check-games-today.outputs.has_any_games == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log skip
+        run: echo "✅ No MLS or Leagues Cup games today - delay monitor skipped"
