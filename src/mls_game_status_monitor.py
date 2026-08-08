@@ -124,18 +124,28 @@ def fetch_game_data():
 
 def get_game_state(event):
     """Extract game state (SCHEDULED, INPROGRESS, FINAL, POSTPONED, SUSPENDED)."""
-    status = event.get('status', {}).get('type', '').upper()
-    
-    # Map ESPN status to our categories
-    status_map = {
-        'PRE': 'SCHEDULED',
-        'LIVE': 'INPROGRESS',
-        'FINAL': 'FINAL',
-        'POSTPONED': 'POSTPONED',
-        'SUSPENDED': 'SUSPENDED'
-    }
-    
-    return status_map.get(status, status)
+    try:
+        status_obj = event.get('status', {})
+        if isinstance(status_obj, dict):
+            status = status_obj.get('type', 'UNKNOWN')
+        else:
+            status = str(status_obj)
+        
+        status = status.upper() if status else 'UNKNOWN'
+        
+        # Map ESPN status to our categories
+        status_map = {
+            'PRE': 'SCHEDULED',
+            'LIVE': 'INPROGRESS',
+            'FINAL': 'FINAL',
+            'POSTPONED': 'POSTPONED',
+            'SUSPENDED': 'SUSPENDED'
+        }
+        
+        return status_map.get(status, status)
+    except Exception as e:
+        logger.warning(f"Error getting game state: {e}")
+        return 'UNKNOWN'
 
 
 def get_stadium_name(team_name):
@@ -143,6 +153,27 @@ def get_stadium_name(team_name):
     if team_name in stadiums:
         return stadiums[team_name].get('stadium', 'Unknown Stadium')
     return 'Unknown Stadium'
+
+
+def get_score_and_clock(event):
+    """Extract current score and clock from event."""
+    try:
+        competitors = event.get('competitors', [])
+        if len(competitors) >= 2:
+            home_score = competitors[0].get('score', 0)
+            away_score = competitors[1].get('score', 0)
+            score = f"{away_score} - {home_score}"
+        else:
+            score = "N/A"
+        
+        # Get current time/status
+        status_detail = event.get('status', {}).get('detail', '')
+        clock = status_detail if status_detail else 'In Progress'
+        
+        return score, clock
+    except Exception as e:
+        logger.warning(f"Could not extract score/clock: {e}")
+        return '', ''
 
 
 def post_to_slack(message_data):
@@ -273,27 +304,6 @@ def post_to_slack(message_data):
             logger.error(f"❌ Slack post failed: {response.status_code} {response.text}")
     except Exception as e:
         logger.error(f"❌ Error posting to Slack: {e}")
-
-
-def get_score_and_clock(event):
-    """Extract current score and clock from event."""
-    try:
-        competitors = event.get('competitors', [])
-        if len(competitors) >= 2:
-            home_score = competitors[0].get('score', 0)
-            away_score = competitors[1].get('score', 0)
-            score = f"{away_score} - {home_score}"
-        else:
-            score = "N/A"
-        
-        # Get current time/status
-        status_detail = event.get('status', {}).get('detail', '')
-        clock = status_detail if status_detail else 'In Progress'
-        
-        return score, clock
-    except Exception as e:
-        logger.warning(f"Could not extract score/clock: {e}")
-        return '', ''
 
 
 def main():
