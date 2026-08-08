@@ -33,8 +33,11 @@ if not os.path.exists(config_path):
 with open(config_path, 'r') as f:
     config = json.load(f)
 
-# Create stadium lookup
-stadiums_by_team = {s['team']: s for s in config['stadiums']}
+# Create stadium lookup - map each team name to stadium config
+stadiums_by_team = {}
+for stadium in config:
+    for team_name in stadium.get('teams', []):
+        stadiums_by_team[team_name] = stadium
 
 # Import utils
 sys.path.insert(0, os.path.dirname(__file__))
@@ -225,7 +228,7 @@ def main():
             # Get weather
             weather = get_weather_for_stadium(stadium_config)
             if not weather:
-                logger.warning(f"Weather fetch failed for {stadium_config['stadium_name']}")
+                logger.warning(f"Weather fetch failed for {stadium_config['stadium']}")
                 continue
             
             # Check risk level
@@ -246,7 +249,7 @@ def main():
                 game_info = {
                     'home_team': home_team_name,
                     'away_team': away_team_name,
-                    'stadium': stadium_config['stadium_name'],
+                    'stadium': stadium_config['stadium'],
                     'kickoff': kickoff_str,
                     'risk_level': risk_level,
                     'weather': weather,
