@@ -39,7 +39,11 @@ if not os.path.exists(config_path):
 with open(config_path, 'r') as f:
     config = json.load(f)
 
-stadiums = {stadium['team']: stadium for stadium in config['stadiums']}
+# Create stadium lookup - map each team name to stadium config
+stadiums = {}
+for stadium in config:
+    for team_name in stadium.get('teams', []):
+        stadiums[team_name] = stadium
 
 # Get secrets
 slack_bot_token = os.getenv('SLACK_BOT_TOKEN')
@@ -137,7 +141,7 @@ def get_game_state(event):
 def get_stadium_name(team_name):
     """Look up stadium name from config."""
     if team_name in stadiums:
-        return stadiums[team_name].get('stadium_name', 'Unknown Stadium')
+        return stadiums[team_name].get('stadium', 'Unknown Stadium')
     return 'Unknown Stadium'
 
 
@@ -150,7 +154,9 @@ def post_to_slack(message_data):
         'away_team': str,
         'stadium': str,
         'alert_type': 'DELAY' | 'POSTPONEMENT' | 'SUSPENDED' | 'RESUMED',
-        'reason': str (optional)
+        'reason': str (optional),
+        'score': str (optional),
+        'clock': str (optional)
     }
     """
     alert_type = message_data.get('alert_type', '')
@@ -158,6 +164,8 @@ def post_to_slack(message_data):
     away_team = message_data.get('away_team', 'Unknown')
     stadium = message_data.get('stadium', 'Unknown Stadium')
     reason = message_data.get('reason', '')
+    score = message_data.get('score', '')
+    clock = message_data.get('clock', '')
     
     # Determine emoji and mention type
     if alert_type == 'DELAY':
@@ -175,7 +183,7 @@ def post_to_slack(message_data):
     elif alert_type == 'RESUMED':
         emoji = '▶️'
         mention = '<!here>'
-        title = f'{emoji} GAME RESUMED'
+        title = f'{emoji} GAME RESUMING'
     else:
         emoji = '⚠️'
         mention = ''
@@ -196,30 +204,51 @@ def post_to_slack(message_data):
             "fields": [
                 {
                     "type": "mrkdwn",
-                    "text": f"*Away Team:*\n{away_team}"
+                    "text": f"*Game:*\n{away_team} vs {home_team}"
                 },
                 {
                     "type": "mrkdwn",
-                    "text": f"*Home Team:*\n{home_team}"
+                    "text": f"*Status:*\n{alert_type}"
                 },
                 {
                     "type": "mrkdwn",
-                    "text": f"*Stadium:*\n{stadium}"
+                    "text": f"*Venue:*\n{stadium}"
+                },
+                {
+                    "type": "mrkdwn",
+                    "text": f"*Stadium Type:*\n🌞 Open Air"
                 }
             ]
         }
     ]
     
+    # Add score if available
+    if score:
+        blocks.append({
+            "type": "section",
+            "fields": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"*Score:*\n{score}"
+                },
+                {
+                    "type": "mrkdwn",
+                    "text": f"*Clock:*\n{clock}"
+                }
+            ]
+        })
+    
+    # Add reason if available
     if reason:
         blocks.append({
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"*Reason:* {reason}"
+                "text": f"*Reason:*\n{reason}"
             }
         })
     
-    # Add footer with timestamp
+    # Add footer with timestamp and mention
     timestamp = now_pt.strftime('%I:%M %p %Z')
     blocks.append({
         "type": "context",
@@ -244,6 +273,27 @@ def post_to_slack(message_data):
             logger.error(f"❌ Slack post failed: {response.status_code} {response.text}")
     except Exception as e:
         logger.error(f"❌ Error posting to Slack: {e}")
+
+
+def get_score_and_clock(event):
+    """Extract current score and clock from event."""
+    try:
+        competitors = event.get('competitors', [])
+        if len(competitors) >= 2:
+            home_score = competitors[0].get('score', 0)
+            away_score = competitors[1].get('score', 0)
+            score = f"{away_score} - {home_score}"
+        else:
+            score = "N/A"
+        
+        # Get current time/status
+        status_detail = event.get('status', {}).get('detail', '')
+        clock = status_detail if status_detail else 'In Progress'
+        
+        return score, clock
+    except Exception as e:
+        logger.warning(f"Could not extract score/clock: {e}")
+        return '', ''
 
 
 def main():
@@ -287,6 +337,7 @@ def main():
         previous_state = game_states.get(game_id, 'UNKNOWN')
         
         stadium = get_stadium_name(home_team)
+        score, clock = get_score_and_clock(event)
         
         logger.info(f"Game {game_id}: {away_team} @ {home_team} ({league}) - State: {current_state} (was {previous_state})")
         
@@ -305,7 +356,9 @@ def main():
                     'away_team': away_team,
                     'stadium': stadium,
                     'alert_type': 'POSTPONEMENT',
-                    'reason': event.get('status', {}).get('details', 'Weather conditions')
+                    'reason': event.get('status', {}).get('details', 'Weather conditions'),
+                    'score': score,
+                    'clock': clock
                 }
                 post_to_slack(message_data)
             
@@ -316,7 +369,9 @@ def main():
                     'away_team': away_team,
                     'stadium': stadium,
                     'alert_type': 'SUSPENDED',
-                    'reason': event.get('status', {}).get('details', 'Game suspended')
+                    'reason': event.get('status', {}).get('details', 'Game suspended'),
+                    'score': score,
+                    'clock': clock
                 }
                 post_to_slack(message_data)
             
@@ -326,7 +381,9 @@ def main():
                     'home_team': home_team,
                     'away_team': away_team,
                     'stadium': stadium,
-                    'alert_type': 'RESUMED'
+                    'alert_type': 'RESUMED',
+                    'score': score,
+                    'clock': clock
                 }
                 post_to_slack(message_data)
             
